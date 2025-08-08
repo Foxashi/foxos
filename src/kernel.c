@@ -565,7 +565,7 @@ void shell_loop() {
             }
         }
         else if (strcmp(cmd, "about") == 0) {
-            terminal_writestring("FoxOS v0.1 - Now with caps lock and shift support!\n");
+            terminal_writestring("FoxOS v0.1 - SCHIZOPHRENIA IS COMING AAAAAA\n");
         }
         else if (strcmp(cmd, "clear") == 0) {
             terminal_initialize();
