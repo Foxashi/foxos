@@ -523,7 +523,7 @@ void shell_loop() {
             }
         }
         else if (strcmp(cmd, "about") == 0) {
-            terminal_writestring("FoxOS v6.7 - Now with caps lock and shift support!\n");
+            terminal_writestring("FoxOS v0.1 - Now with caps lock and shift support!\n");
         }
         else if (strcmp(cmd, "clear") == 0) {
             terminal_initialize();
@@ -553,7 +553,7 @@ void kernel_main() {
     // Set initial color (can be changed later with 'color' command)
     terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
     
-    terminal_writestring("FoxOS [Version 6.7]\n");
+    terminal_writestring("FoxOS [Version 0.1]\n");
     terminal_writestring("Now with caps lock and shift support! Type 'help'\n");
     shell_loop();
 }
