@@ -63,6 +63,7 @@ static inline uint16_t vga_entry(unsigned char uc, uint8_t color) {
 #define VGA_MEMORY 0xB8000
 #define INPUT_BUFFER_SIZE 256
 #define HISTORY_SIZE 10
+#define CURSOR_BLINK_DELAY 300000
 
 size_t terminal_row;
 size_t terminal_column;
@@ -192,7 +193,7 @@ int sscanf(const char *str, const char *fmt, ...) {
 void terminal_initialize(void) {
     terminal_row = 0;
     terminal_column = 0;
-    // Don't reset color here - keep current terminal_color
+    // Keep current terminal_color instead of resetting it
 
     for (size_t y = 0; y < VGA_HEIGHT; y++) {
         for (size_t x = 0; x < VGA_WIDTH; x++) {
@@ -388,19 +389,52 @@ void redraw_line() {
     input_index = strlen(input_buffer);
 }
 
+void show_cursor(bool visible) {
+    uint16_t cursor_pos = terminal_row * VGA_WIDTH + terminal_column;
+    if (visible) {
+        // Draw a solid rectangle cursor (reverse video)
+        uint8_t current_char = terminal_buffer[cursor_pos] & 0xFF;
+        uint8_t current_color = (terminal_buffer[cursor_pos] >> 8) & 0xFF;
+        terminal_buffer[cursor_pos] = vga_entry(current_char, 
+                                              vga_entry_color(current_color >> 4, current_color & 0x0F));
+    } else {
+        // Restore original character
+        if (input_index < strlen(input_buffer)) {
+            terminal_putentryat(input_buffer[input_index], terminal_color, terminal_column, terminal_row);
+        } else {
+            terminal_putentryat(' ', terminal_color, terminal_column, terminal_row);
+        }
+    }
+}
+
 void read_line() {
     input_index = 0;
     input_buffer[0] = '\0';
+    bool cursor_visible = true;
+    uint32_t last_blink = 0;
+    
+    // Initial cursor show
+    show_cursor(true);
     
     while (1) {
-        char c = get_key();
-        if (!c) continue;
-
-        uint16_t cursor_pos = terminal_row * VGA_WIDTH + terminal_column;
-        uint16_t saved_char = terminal_buffer[cursor_pos];
+        // Handle cursor blinking
+        uint32_t current_time = 0; 
+        if (current_time - last_blink > CURSOR_BLINK_DELAY) {
+            cursor_visible = !cursor_visible;
+            show_cursor(cursor_visible);
+            last_blink = current_time;
+        }
         
-        // Remove cursor feedback before processing key
-        terminal_buffer[cursor_pos] = saved_char;
+        char c = get_key();
+        if (!c) {
+            // Small delay to prevent CPU hogging
+            for (volatile int i = 0; i < 1000; i++);
+            continue;
+        }
+
+        // Hide cursor before processing key
+        show_cursor(false);
+        cursor_visible = false;
 
         switch(c) {
             case '\x11': // Up arrow
@@ -469,13 +503,23 @@ void read_line() {
                 }
         }
         
-        // Add cursor feedback after processing key
-        cursor_pos = terminal_row * VGA_WIDTH + terminal_column;
-        saved_char = terminal_buffer[cursor_pos];
-        terminal_buffer[cursor_pos] ^= 0x700;
+        // Show cursor again after processing
+        show_cursor(true);
+        cursor_visible = true;
+        last_blink = current_time;
         
         update_cursor(terminal_column, terminal_row);
     }
+}
+
+/* --- Disk Detection --- */
+bool disk_detected() {
+    // DISK DETECTION IS JUST A FUCKING ILLUSION LISTEN TO ME IT'S A TOOL MADE BY THE CIA TO FOOL YOUU
+    return true;
+}
+
+void delay(uint32_t count) {
+    for (volatile uint32_t i = 0; i < count; i++);
 }
 
 /* --- Shell --- */
@@ -486,7 +530,6 @@ void shell_loop() {
     while (1) {
         terminal_column = 0;
         terminal_writestring("\n-> ");
-        terminal_putchar(' '); // Add extra space after prompt
         input_buffer[0] = '\0';
         input_index = 0;
         
@@ -505,7 +548,6 @@ void shell_loop() {
             terminal_writestring("  clear - Clear screen\n");
             terminal_writestring("  color <fg> [bg] - Change text color\n");
             terminal_writestring("  history - Show command history\n");
-            terminal_writestring("  caps - Toggle caps lock state\n");
             terminal_writestring("Colors: black, blue, green, cyan, red, magenta,\n");
             terminal_writestring("brown, light_grey, dark_grey, light_blue,\n");
             terminal_writestring("light_green, light_cyan, light_red,\n");
@@ -535,10 +577,6 @@ void shell_loop() {
                 terminal_writestring("\n");
             }
         }
-        else if (strcmp(cmd, "caps") == 0) {
-            caps_lock = !caps_lock;
-            terminal_writestring(caps_lock ? "Caps Lock ON\n" : "Caps Lock OFF\n");
-        }
         else if (strlen(cmd) > 0) {
             terminal_writestring("Unknown command. Type 'help'\n");
         }
@@ -550,10 +588,27 @@ void shell_loop() {
 /* --- Kernel Main --- */
 void kernel_main() {
     terminal_initialize();
-    // Set initial color (can be changed later with 'color' command)
+    // Set initial color
     terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
     
     terminal_writestring("FoxOS [Version 0.1]\n");
-    terminal_writestring("Now with caps lock and shift support! Type 'help'\n");
+    delay(5000000);
+    terminal_writestring("Booting system...\n");
+    delay(3000000);
+    
+    // Check for disk
+    terminal_writestring("Checking disks... ");
+    delay(2000000);
+    if (disk_detected()) {
+        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
+        terminal_writestring("<OK> Disk found\n");
+        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
+    } else {
+        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
+        terminal_writestring("<FAIL> No disk found\n");
+        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
+    }
+    
+    terminal_writestring("Type 'help'. Don't TYPE SHIT!!!!! HAHAHA\n");
     shell_loop();
 }
