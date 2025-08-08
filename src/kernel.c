@@ -589,7 +589,7 @@ void shell_loop() {
 void kernel_main() {
     terminal_initialize();
     // Set initial color
-    terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
+    terminal_color = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
     
     terminal_writestring("FoxOS [Version 0.1]\n");
     delay(5000000);
@@ -602,11 +602,11 @@ void kernel_main() {
     if (disk_detected()) {
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
         terminal_writestring("<OK> Disk found\n");
-        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
+        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
     } else {
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
         terminal_writestring("<FAIL> No disk found\n");
-        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
+        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
     }
     
     terminal_writestring("Type 'help'. Don't TYPE SHIT!!!!! HAHAHA\n");
