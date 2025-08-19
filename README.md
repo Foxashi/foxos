@@ -24,7 +24,7 @@ And this is how to looks at the moment, no GUI
 
 Goals:
 
--> GUI
--> Support for Japanese Text
--> Enchanced File System
--> Text Editor
+-> GUI <BR>
+-> Support for Japanese Text <BR>
+-> Enchanced File System <BR> 
+-> Text Editor <BR>
