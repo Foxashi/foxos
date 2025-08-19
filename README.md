@@ -19,7 +19,14 @@ Operating System:
 
 <img width="753" height="452" alt="image" src="https://github.com/user-attachments/assets/9ce9021d-4364-47f2-8c76-c8868afd0103" />
 
-And this is how to looks at the moment, no GUI
+And this is how to looks without the filesystem
+
+File System formatted:
+
+<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/1c8f0529-8e79-4567-bb6b-e7ae63cf993d" />
+
+With the filesystem 
+
 
 
 Goals:
