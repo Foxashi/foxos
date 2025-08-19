@@ -11,13 +11,13 @@ Here's a preview of the operating system
 
 Boot:
 
-<img width="744" height="451" alt="image" src="https://github.com/user-attachments/assets/d00afc3d-3539-469a-9e02-2d417ce2a466" />
+<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/17887868-ec35-4097-8475-6ef242598ec0" />
 
 And yes I'm using grub as the bootloader since it's my favourite bootloader.
 
 Operating System:
 
-<img width="753" height="452" alt="image" src="https://github.com/user-attachments/assets/9ce9021d-4364-47f2-8c76-c8868afd0103" />
+<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/669c73a1-49e8-40d2-b773-86e6d1955d6b" />
 
 And this is how to looks without the filesystem
 
