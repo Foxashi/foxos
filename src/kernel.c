@@ -160,6 +160,7 @@ static fat_entry_t fat_table[FS_MAX_BLOCKS];
 static dir_entry_t current_dir[FS_MAX_FILES];
 static uint32_t current_dir_block = FS_ROOT_DIR_BLOCK;
 static fs_superblock_t superblock;
+static bool fs_initialized = false;  // Track if filesystem is initialized
 
 /* === Utility Functions === */
 void itoa(int value, char* str, int base) {
@@ -232,6 +233,7 @@ int fs_init() {
     }
 
     current_dir_block = superblock.root_dir_block;
+    fs_initialized = true;
     return FS_OK;
 }
 
@@ -286,8 +288,9 @@ int fs_format() {
     // Update current directory in memory
     memcpy(current_dir, root_dir, sizeof(current_dir));
     current_dir_block = FS_ROOT_DIR_BLOCK;
+    fs_initialized = true;
 
-    return FS_OK;  // Removed the success message from here
+    return FS_OK;
 }
 
 // Find a free block in the FAT
@@ -561,8 +564,16 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
         } else {
             terminal_writestring("Format failed\n");
         }
+        return;
     }
-    else if (strcmp(cmd, "mkfile") == 0) {
+
+    // For all other filesystem commands, check if filesystem is initialized
+    if (!fs_initialized) {
+        terminal_writestring("Filesystem not initialized. Please run 'format' first.\n");
+        return;
+    }
+
+    if (strcmp(cmd, "mkfile") == 0) {
         if (args < 2) {
             terminal_writestring("Usage: mkfile <filename>\n");
         } else {
@@ -638,7 +649,6 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
             }
         }
     }
-
     else if (strcmp(cmd, "cd") == 0) {
         if (args < 2) {
             // No argument - go to root
@@ -984,20 +994,18 @@ size_t input_index = 0;
 
 /* Prompt helper - prints prompt WITHOUT leading newline */
 void print_prompt(void) {
-
-    if(superblock.magic == FS_MAGIC) {
+    if (fs_initialized) {
         terminal_writestring("[");
         terminal_writestring(current_path);
         terminal_writestring("] -> ");
     } else {
         terminal_writestring("-> ");
     }
-    
 }
 
 void clear_line() {
     // Move cursor to start of line (after prompt and space)
-    terminal_column = strlen(current_path) + 4;
+    terminal_column = fs_initialized ? (strlen(current_path) + 4) : 8;
     update_cursor(terminal_column, terminal_row);
     
     // Clear the line from the prompt onward
@@ -1006,7 +1014,7 @@ void clear_line() {
     }
     
     // Reset cursor
-    terminal_column = strlen(current_path) + 4;
+    terminal_column = fs_initialized ? (strlen(current_path) + 4) : 8;
     update_cursor(terminal_column, terminal_row);
 }
 
