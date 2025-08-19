@@ -20,3 +20,11 @@ Operating System:
 <img width="753" height="452" alt="image" src="https://github.com/user-attachments/assets/9ce9021d-4364-47f2-8c76-c8868afd0103" />
 
 And this is how to looks at the moment, no GUI
+
+
+Goals:
+
+-> GUI
+-> Support for Japanese Text
+-> Enchanced File System
+-> Text Editor
