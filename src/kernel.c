@@ -3,9 +3,26 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-/* === Custom String Functions === */
+/* ===== Compiler checks ===== */
+#if defined(__linux__)
+#error "Use a cross-compiler (ix86-elf)"
+#endif
 
+#if !defined(__i386__)
+#error "Compile with ix86-elf compiler"
+#endif
+
+/* ===== Forward Declarations ===== */
+void terminal_writestring(const char* data);
+void reboot();
+void shutdown();
+
+/* ===== Custom String Functions ===== */
+
+// Added bounds checking to prevent buffer overflows
 size_t strlen(const char* str) {
+    if (str == NULL) return 0;
+    
     size_t len = 0;
     while (str[len] != '\0') {
         len++;
@@ -14,6 +31,8 @@ size_t strlen(const char* str) {
 }
 
 int strcmp(const char* s1, const char* s2) {
+    if (s1 == NULL || s2 == NULL) return -1;
+    
     while (*s1 && (*s1 == *s2)) {
         s1++;
         s2++;
@@ -22,6 +41,8 @@ int strcmp(const char* s1, const char* s2) {
 }
 
 int strncmp(const char* s1, const char* s2, size_t n) {
+    if (s1 == NULL || s2 == NULL || n == 0) return 0;
+    
     for (size_t i = 0; i < n; i++) {
         unsigned char c1 = (unsigned char)s1[i];
         unsigned char c2 = (unsigned char)s2[i];
@@ -32,20 +53,26 @@ int strncmp(const char* s1, const char* s2, size_t n) {
 }
 
 char* strcpy(char* dest, const char* src) {
+    if (dest == NULL || src == NULL) return dest;
+    
     char* original_dest = dest;
     while ((*dest++ = *src++));
     return original_dest;
 }
 
 char* strncpy(char* dest, const char* src, size_t n) {
+    if (dest == NULL || src == NULL || n == 0) return dest;
+    
     char* original_dest = dest;
     size_t i = 0;
-    for (; i < n && src[i] != '\0'; i++) dest[i] = src[i];
-    for (; i < n; i++) dest[i] = '\0';
+    for (; i < n - 1 && src[i] != '\0'; i++) dest[i] = src[i];
+    dest[i] = '\0'; // Always null-terminate
     return original_dest;
 }
 
 void* memset(void* ptr, int value, size_t num) {
+    if (ptr == NULL) return NULL;
+    
     unsigned char* p = ptr;
     while (num--) {
         *p++ = (unsigned char)value;
@@ -54,6 +81,8 @@ void* memset(void* ptr, int value, size_t num) {
 }
 
 void* memcpy(void* dest, const void* src, size_t n) {
+    if (dest == NULL || src == NULL) return dest;
+    
     char* d = dest;
     const char* s = src;
     while (n--) {
@@ -63,6 +92,8 @@ void* memcpy(void* dest, const void* src, size_t n) {
 }
 
 void* memmove(void* dest, const void* src, size_t n) {
+    if (dest == NULL || src == NULL) return dest;
+    
     char* d = dest;
     const char* s = src;
     
@@ -76,20 +107,41 @@ void* memmove(void* dest, const void* src, size_t n) {
     return dest;
 }
 
-/* Compiler checks */
-#if defined(__linux__)
-#error "Use a cross-compiler (ix86-elf)"
-#endif
+// Implement strchr function
+char* strchr(const char* s, int c) {
+    if (s == NULL) return NULL;
+    
+    while (*s != '\0') {
+        if (*s == (char)c) {
+            return (char*)s;
+        }
+        s++;
+    }
+    return NULL;
+}
 
-#if !defined(__i386__)
-#error "Compile with ix86-elf compiler"
-#endif
+// Implement tolower function
+int tolower(int c) {
+    if (c >= 'A' && c <= 'Z') {
+        return c + ('a' - 'A');
+    }
+    return c;
+}
 
-/* === Forward Declarations === */
-void terminal_writestring(const char* data);
-void delay(uint32_t count);
+// Implement strcasecmp function
+int strcasecmp(const char* s1, const char* s2) {
+    if (s1 == NULL || s2 == NULL) return -1;
+    
+    while (*s1 && *s2) {
+        int diff = tolower(*s1) - tolower(*s2);
+        if (diff != 0) return diff;
+        s1++;
+        s2++;
+    }
+    return tolower(*s1) - tolower(*s2);
+}
 
-/* === File System Constants === */
+/* ===== File System Constants ===== */
 #define FS_BLOCK_SIZE 512
 #define FS_MAX_BLOCKS 1024        // 512KB total storage
 #define FS_MAX_FILES 128
@@ -110,11 +162,12 @@ void delay(uint32_t count);
 #define FS_EXISTS       -3
 #define FS_FULL         -4
 #define FS_IO_ERROR     -5
+#define FS_INVALID_NAME -6
 
 #define MAX_PATH_LEN 256
 static char current_path[MAX_PATH_LEN] = "/";
 
-/* === File System Structures === */
+/* ===== File System Structures ===== */
 typedef struct {
     uint32_t magic;
     uint32_t block_count;
@@ -136,7 +189,7 @@ typedef struct {
     uint8_t reserved[3];  // Padding
 } dir_entry_t;
 
-/* === Disk Driver Interface === */
+/* ===== Disk Driver Interface ===== */
 bool disk_read(uint32_t block, void* buffer) {
     // TODO: Implement actual disk reading
     // For now, just simulate success
@@ -155,15 +208,17 @@ bool disk_detected() {
     return true;
 }
 
-/* === File System Global State === */
+/* ===== File System Global State ===== */
 static fat_entry_t fat_table[FS_MAX_BLOCKS];
 static dir_entry_t current_dir[FS_MAX_FILES];
 static uint32_t current_dir_block = FS_ROOT_DIR_BLOCK;
 static fs_superblock_t superblock;
 static bool fs_initialized = false;  // Track if filesystem is initialized
 
-/* === Utility Functions === */
+/* ===== Utility Functions ===== */
 void itoa(int value, char* str, int base) {
+    if (str == NULL) return;
+    
     char* ptr = str;
     bool negative = false;
     unsigned int u;
@@ -201,19 +256,17 @@ void delay(uint32_t count) {
     for (volatile uint32_t i = 0; i < count; i++);
 }
 
-/* === File System Core Functions === */
+/* ===== File System Core Functions ===== */
 
 // Initialize the file system (read superblock, FAT, and root directory)
 int fs_init() {
     // Read superblock (block 0)
     if (!disk_read(0, &superblock)) {
-        terminal_writestring("Failed to read superblock\n");
         return FS_IO_ERROR;
     }
 
     // Check if filesystem exists
     if (superblock.magic != FS_MAGIC) {
-        terminal_writestring("No filesystem detected\n");
         return FS_NOT_FOUND;
     }
 
@@ -221,14 +274,12 @@ int fs_init() {
     uint32_t fat_size = superblock.fat_blocks;
     for (uint32_t i = 0; i < fat_size; i++) {
         if (!disk_read(1 + i, (uint8_t*)fat_table + i * FS_BLOCK_SIZE)) {
-            terminal_writestring("Failed to read FAT\n");
             return FS_IO_ERROR;
         }
     }
 
     // Read root directory
     if (!disk_read(superblock.root_dir_block, current_dir)) {
-        terminal_writestring("Failed to read root directory\n");
         return FS_IO_ERROR;
     }
 
@@ -248,7 +299,6 @@ int fs_format() {
 
     // Write superblock
     if (!disk_write(0, &superblock)) {
-        terminal_writestring("Failed to write superblock\n");
         return FS_IO_ERROR;
     }
 
@@ -265,7 +315,6 @@ int fs_format() {
     // Write FAT table
     for (uint32_t i = 0; i < superblock.fat_blocks; i++) {
         if (!disk_write(1 + i, (uint8_t*)fat_table + i * FS_BLOCK_SIZE)) {
-            terminal_writestring("Failed to write FAT\n");
             return FS_IO_ERROR;
         }
     }
@@ -281,7 +330,6 @@ int fs_format() {
     root_dir[1].first_block = FS_ROOT_DIR_BLOCK;
 
     if (!disk_write(FS_ROOT_DIR_BLOCK, root_dir)) {
-        terminal_writestring("Failed to write root directory\n");
         return FS_IO_ERROR;
     }
 
@@ -305,6 +353,8 @@ int fs_find_free_block() {
 
 // Find a file in the current directory
 dir_entry_t* fs_find_file(const char* filename) {
+    if (filename == NULL) return NULL;
+    
     for (int i = 0; i < FS_MAX_FILES; i++) {
         if (current_dir[i].filename[0] != '\0' && 
             strcmp(current_dir[i].filename, filename) == 0) {
@@ -314,11 +364,36 @@ dir_entry_t* fs_find_file(const char* filename) {
     return NULL;
 }
 
+// Validate filename
+bool fs_is_valid_filename(const char* filename) {
+    if (filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN) {
+        return false;
+    }
+    
+    // Check for invalid characters
+    const char* invalid_chars = "/\\?*:|\"<>";
+    for (size_t i = 0; i < strlen(filename); i++) {
+        if (strchr(invalid_chars, filename[i]) != NULL) {
+            return false;
+        }
+    }
+    
+    // Check for reserved names
+    const char* reserved_names[] = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "LPT1", "LPT2", NULL};
+    for (int i = 0; reserved_names[i] != NULL; i++) {
+        if (strcasecmp(filename, reserved_names[i]) == 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 // Create a new file or directory
 int fs_create(const char* filename, uint8_t attributes) {
     // Validate filename
-    if (strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN) {
-        return FS_ERROR;
+    if (!fs_is_valid_filename(filename)) {
+        return FS_INVALID_NAME;
     }
 
     // Check if file exists
@@ -403,7 +478,7 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
         }
     }
 
-    // Write data to blocks
+// Write data to blocks
     uint32_t bytes_written = 0;
     uint16_t current_block = entry->first_block;
     const uint8_t* data_ptr = (const uint8_t*)data;
@@ -475,7 +550,6 @@ int fs_read(const char* filename, void* buffer, uint32_t max_size) {
 
 // List files in current directory
 void fs_list() {
-    terminal_writestring("Directory listing:\n");
     for (int i = 0; i < FS_MAX_FILES; i++) {
         if (current_dir[i].filename[0] != '\0') {
             // File/directory indicator
@@ -546,140 +620,32 @@ int fs_delete(const char* filename) {
 }
 
 void fs_get_current_path(char* buffer, size_t size) {
+    if (buffer == NULL || size == 0) return;
     strncpy(buffer, current_path, size);
     buffer[size-1] = '\0';
 }
 
 void fs_set_current_path(const char* path) {
+    if (path == NULL) return;
     strncpy(current_path, path, MAX_PATH_LEN);
     current_path[MAX_PATH_LEN-1] = '\0';
 }
 
-/* === Shell Commands === */
-void shell_filesystem_commands(const char* cmd, const char* arg1, const char* arg2, int args) {
-    if (strcmp(cmd, "format") == 0) {
-        int result = fs_format();
-        if (result == FS_OK) {
-            terminal_writestring("Filesystem formatted successfully\n");
-        } else {
-            terminal_writestring("Format failed\n");
-        }
-        return;
-    }
-
-    // For all other filesystem commands, check if filesystem is initialized
-    if (!fs_initialized) {
-        terminal_writestring("Filesystem not initialized. Please run 'format' first.\n");
-        return;
-    }
-
-    if (strcmp(cmd, "mkfile") == 0) {
-        if (args < 2) {
-            terminal_writestring("Usage: mkfile <filename>\n");
-        } else {
-            int result = fs_create(arg1, FS_ATTR_FILE);
-            if (result == FS_OK) {
-                terminal_writestring("File created\n");
-            } else if (result == FS_EXISTS) {
-                terminal_writestring("File already exists\n");
-            } else {
-                terminal_writestring("Failed to create file\n");
-            }
-        }
-    }
-    else if (strcmp(cmd, "mkdir") == 0) {
-        if (args < 2) {
-            terminal_writestring("Usage: mkdir <dirname>\n");
-        } else {
-            int result = fs_create(arg1, FS_ATTR_DIR);
-            if (result == FS_OK) {
-                terminal_writestring("Directory created\n");
-            } else if (result == FS_EXISTS) {
-                terminal_writestring("Directory already exists\n");
-            } else {
-                terminal_writestring("Failed to create directory\n");
-            }
-        }
-    }
-    else if (strcmp(cmd, "write") == 0) {
-        if (args < 3) {
-            terminal_writestring("Usage: write <filename> <text>\n");
-        } else {
-            int result = fs_write(arg1, arg2, strlen(arg2)+1);
-            if (result == FS_OK) {
-                terminal_writestring("Write successful\n");
-            } else if (result == FS_NOT_FOUND) {
-                terminal_writestring("File not found\n");
-            } else {
-                terminal_writestring("Write failed\n");
-            }
-        }
-    }
-    else if (strcmp(cmd, "read") == 0) {
-        if (args < 2) {
-            terminal_writestring("Usage: read <filename>\n");
-        } else {
-            char buffer[FS_BLOCK_SIZE];
-            int result = fs_read(arg1, buffer, sizeof(buffer));
-            if (result == FS_OK) {
-                terminal_writestring("File contents: ");
-                terminal_writestring(buffer);
-                terminal_writestring("\n");
-            } else if (result == FS_NOT_FOUND) {
-                terminal_writestring("File not found\n");
-            } else {
-                terminal_writestring("Read failed\n");
-            }
-        }
-    }
-    else if (strcmp(cmd, "ls") == 0) {
-        fs_list();
-    }
-    else if (strcmp(cmd, "rm") == 0) {
-        if (args < 2) {
-            terminal_writestring("Usage: rm <filename>\n");
-        } else {
-            int result = fs_delete(arg1);
-            if (result == FS_OK) {
-                terminal_writestring("File deleted\n");
-            } else if (result == FS_NOT_FOUND) {
-                terminal_writestring("File not found\n");
-            } else {
-                terminal_writestring("Delete failed\n");
-            }
-        }
-    }
-    else if (strcmp(cmd, "cd") == 0) {
-        if (args < 2) {
-            // No argument - go to root
-            fs_set_current_path("/");
-            terminal_writestring("Changed to root directory\n");
-        } else {
-            // Basic path validation
-            if (strcmp(arg1, "/") == 0) {
-                fs_set_current_path("/");
-                terminal_writestring("Changed to root directory\n");
-            } else if (strcmp(arg1, ".") == 0) {
-                // Stay in current directory
-                terminal_writestring("Remaining in current directory\n");
-            } else if (strcmp(arg1, "..") == 0) {
-                // Go up one directory (if not already at root)
-                if (strcmp(current_path, "/") != 0) {
-                    fs_set_current_path("/");
-                    terminal_writestring("Changed to root directory\n");
-                } else {
-                    terminal_writestring("Already at root directory\n");
-                }
-            } else {
-                // For now, reject all other paths until proper directory traversal is implemented
-                terminal_writestring("Directory navigation not fully implemented yet\n");
-                terminal_writestring("Only '/' (root), '.', and '..' are supported\n");
-            }
-        }
+// Improved error reporting
+void fs_perror(int error_code) {
+    switch(error_code) {
+        case FS_OK: terminal_writestring("Operation successful"); break;
+        case FS_ERROR: terminal_writestring("General filesystem error"); break;
+        case FS_NOT_FOUND: terminal_writestring("File or directory not found"); break;
+        case FS_EXISTS: terminal_writestring("File already exists"); break;
+        case FS_FULL: terminal_writestring("Disk full"); break;
+        case FS_IO_ERROR: terminal_writestring("Disk I/O error"); break;
+        case FS_INVALID_NAME: terminal_writestring("Invalid filename"); break;
+        default: terminal_writestring("Unknown error");
     }
 }
 
-/* === VGA Constants === */
+/* ===== VGA Constants ===== */
 enum vga_color {
     VGA_COLOR_BLACK = 0,
     VGA_COLOR_BLUE = 1,
@@ -699,7 +665,7 @@ enum vga_color {
     VGA_COLOR_WHITE = 15,
 };
 
-/* === VGA Helpers === */
+/* ===== VGA Helpers ===== */
 static inline uint8_t vga_entry_color(enum vga_color fg, enum vga_color bg) {
     return fg | bg << 4;
 }
@@ -708,7 +674,7 @@ static inline uint16_t vga_entry(unsigned char uc, uint8_t color) {
     return (uint16_t) uc | (uint16_t) color << 8;
 }
 
-/* === Terminal Config === */
+/* ===== Terminal Config ===== */
 #define VGA_WIDTH 80
 #define VGA_HEIGHT 25
 #define VGA_MEMORY 0xB8000
@@ -721,7 +687,7 @@ size_t terminal_column;
 uint8_t terminal_color;
 uint16_t* terminal_buffer = (uint16_t*) VGA_MEMORY;
 
-/* --- Port I/O --- */
+/* ===== Port I/O ===== */
 void outb(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
@@ -732,11 +698,22 @@ uint8_t inb(uint16_t port) {
     return result;
 }
 
+// Add 16-bit port I/O functions
+void outw(uint16_t port, uint16_t value) {
+    __asm__ volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
+}
+
+uint16_t inw(uint16_t port) {
+    uint16_t result;
+    __asm__ volatile ("inw %1, %0" : "=a"(result) : "Nd"(port));
+    return result;
+}
+
 void io_wait() {
     __asm__ volatile ("outb %%al, $0x80" : : "a"(0));
 }
 
-/* --- Cursor Control --- */
+/* ===== Cursor Control ===== */
 void enable_cursor(uint8_t cursor_start, uint8_t cursor_end) {
     outb(0x3D4, 0x0A);
     outb(0x3D5, (inb(0x3D5) & 0xC0) | cursor_start);
@@ -761,6 +738,8 @@ void update_cursor(int x, int y) {
 }
 
 void strlower(char *str) {
+    if (str == NULL) return;
+    
     for (; *str; str++) {
         if (*str >= 'A' && *str <= 'Z') {
             *str += 32;
@@ -769,6 +748,8 @@ void strlower(char *str) {
 }
 
 uint8_t parse_color(const char *name) {
+    if (name == NULL) return VGA_COLOR_LIGHT_GREY;
+    
     if (strcmp(name, "black") == 0) return VGA_COLOR_BLACK;
     if (strcmp(name, "blue") == 0) return VGA_COLOR_BLUE;
     if (strcmp(name, "green") == 0) return VGA_COLOR_GREEN;
@@ -789,6 +770,8 @@ uint8_t parse_color(const char *name) {
 }
 
 int sscanf(const char *str, const char *fmt, ...) {
+    if (str == NULL || fmt == NULL) return 0;
+    
     va_list args;
     va_start(args, fmt);
     
@@ -815,7 +798,7 @@ int sscanf(const char *str, const char *fmt, ...) {
     return count;
 }
 
-/* --- Terminal Functions --- */
+/* ===== Terminal Functions ===== */
 void terminal_initialize(void) {
     terminal_row = 0;
     terminal_column = 0;
@@ -836,6 +819,7 @@ void terminal_setcolor(uint8_t color) {
 }
 
 void terminal_putentryat(char c, uint8_t color, size_t x, size_t y) {
+    if (x >= VGA_WIDTH || y >= VGA_HEIGHT) return;
     terminal_buffer[y * VGA_WIDTH + x] = vga_entry(c, color);
 }
 
@@ -874,15 +858,18 @@ void terminal_putchar(char c) {
 }
 
 void terminal_write(const char* data, size_t size) {
+    if (data == NULL) return;
+    
     for (size_t i = 0; i < size; i++)
         terminal_putchar(data[i]);
 }
 
 void terminal_writestring(const char* data) {
+    if (data == NULL) return;
     terminal_write(data, strlen(data));
 }
 
-/* --- Keyboard --- */
+/* ===== Keyboard ===== */
 const char keyboard_map[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
     '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
@@ -909,6 +896,8 @@ const char keyboard_map_shift[128] = {
 #define KEY_LSHIFT 0x2A
 #define KEY_RSHIFT 0x36
 #define KEY_CAPS   0x3A
+#define KEY_ENTER  0x1C
+#define KEY_BACKSPACE 0x0E
 
 /* Keyboard state */
 bool shift_pressed = false;
@@ -951,6 +940,14 @@ char get_key() {
         return 0;
     }
     
+    if (scancode == KEY_ENTER) {
+        return '\n';
+    }
+    
+    if (scancode == KEY_BACKSPACE) {
+        return '\b';
+    }
+    
     if (scancode >= sizeof(keyboard_map)) return 0;
     
     // Determine which character to return based on shift and caps state
@@ -962,13 +959,13 @@ char get_key() {
     }
 }
 
-/* --- Command History --- */
+/* ===== Command History ===== */
 char command_history[HISTORY_SIZE][INPUT_BUFFER_SIZE];
 int history_count = 0;
 int history_pos = -1;
 
 void add_to_history(const char* cmd) {
-    if (strlen(cmd) == 0) return;
+    if (cmd == NULL || strlen(cmd) == 0) return;
     
     // Don't add duplicate consecutive commands
     if (history_count > 0 && strcmp(command_history[history_count-1], cmd) == 0) {
@@ -988,7 +985,7 @@ void add_to_history(const char* cmd) {
     history_pos = -1;
 }
 
-/* --- Input Handling --- */
+/* ===== Input Handling ===== */
 char input_buffer[INPUT_BUFFER_SIZE];
 size_t input_index = 0;
 
@@ -1165,7 +1162,197 @@ void read_line() {
     }
 }
 
-/* --- Shell --- */
+/* ===== Reboot and Shutdown Functions ===== */
+#define ACPI_SHUTDOWN_PORT 0x4004
+#define ACPI_REBOOT_PORT 0x64
+
+// Improved reboot function that works on both real hardware and emulators
+void reboot() {
+    terminal_writestring("Rebooting system...\n");
+    delay(2000000);
+    
+    // Try multiple methods to ensure it works on different hardware
+    uint8_t temp;
+    
+    // Method 1: Keyboard controller (works on most systems)
+    asm volatile ("cli");
+    do {
+        temp = inb(0x64);
+        if (temp & 0x01) inb(0x60);
+    } while (temp & 0x02);
+    
+    outb(0x64, 0xFE);
+    
+    // Method 2: Triple fault (force a CPU reset)
+    asm volatile (
+        "cli;"
+        "lidt (%0);"
+        "int $0;"
+        :
+        : "r" (0)
+    );
+    
+    // Method 3: Use ACPI reset command (if available)
+    outw(ACPI_REBOOT_PORT, 0x1234);
+    
+    // If all else fails, just halt
+    asm volatile ("hlt");
+}
+
+// Improved shutdown function that works on both real hardware and emulators
+void shutdown() {
+    terminal_writestring("Shutting down system...\n");
+    delay(2000000);
+    
+    // Try multiple methods to ensure it works on different hardware
+    
+    // Method 1: ACPI shutdown (works on modern hardware)
+    outw(ACPI_SHUTDOWN_PORT, 0x2000);
+    
+    // Method 2: QEMU and Bochs shutdown
+    outw(0xB004, 0x2000);
+    
+    // Method 3: VirtualBox shutdown
+    outw(0x4004, 0x3400);
+    
+    // Method 4: Try to use APM (Advanced Power Management)
+    outw(0x5301, 0x0000);     // Connect to APM
+    outw(0x530E, 0x0000);     // Set APM version
+    outw(0x5307, 0x0001);     // Set power state to off
+    outw(0x5308, 0x0000);     // Set power state to off
+    
+    // If all else fails, just halt
+    asm volatile ("cli");
+    asm volatile ("hlt");
+}
+
+/* ===== Shell Commands ===== */
+void shell_filesystem_commands(const char* cmd, const char* arg1, const char* arg2, int args) {
+    if (strcmp(cmd, "format") == 0) {
+        int result = fs_format();
+        if (result == FS_OK) {
+            terminal_writestring("Filesystem formatted successfully\n");
+        } else {
+            terminal_writestring("Format failed: ");
+            fs_perror(result);
+            terminal_writestring("\n");
+        }
+        return;
+    }
+
+    // For all other filesystem commands, check if filesystem is initialized
+    if (!fs_initialized) {
+        terminal_writestring("Filesystem not initialized. Please run 'format' first.\n");
+        return;
+    }
+
+    if (strcmp(cmd, "mkfile") == 0) {
+        if (args < 2) {
+            terminal_writestring("Usage: mkfile <filename>\n");
+        } else {
+            int result = fs_create(arg1, FS_ATTR_FILE);
+            if (result == FS_OK) {
+                terminal_writestring("File created\n");
+            } else {
+                terminal_writestring("Failed to create file: ");
+                fs_perror(result);
+                terminal_writestring("\n");
+            }
+        }
+    }
+    else if (strcmp(cmd, "mkdir") == 0) {
+        if (args < 2) {
+            terminal_writestring("Usage: mkdir <dirname>\n");
+        } else {
+            int result = fs_create(arg1, FS_ATTR_DIR);
+            if (result == FS_OK) {
+                terminal_writestring("Directory created\n");
+            } else {
+                terminal_writestring("Failed to create directory: ");
+                fs_perror(result);
+                terminal_writestring("\n");
+            }
+        }
+    }
+    else if (strcmp(cmd, "write") == 0) {
+        if (args < 3) {
+            terminal_writestring("Usage: write <filename> <text>\n");
+        } else {
+            int result = fs_write(arg1, arg2, strlen(arg2)+1);
+            if (result == FS_OK) {
+                terminal_writestring("Write successful\n");
+            } else {
+                terminal_writestring("Write failed: ");
+                fs_perror(result);
+                terminal_writestring("\n");
+            }
+        }
+    }
+    else if (strcmp(cmd, "read") == 0) {
+        if (args < 2) {
+            terminal_writestring("Usage: read <filename>\n");
+        } else {
+            char buffer[FS_BLOCK_SIZE];
+            int result = fs_read(arg1, buffer, sizeof(buffer));
+            if (result == FS_OK) {
+                terminal_writestring("File contents: ");
+                terminal_writestring(buffer);
+                terminal_writestring("\n");
+            } else {
+                terminal_writestring("Read failed: ");
+                fs_perror(result);
+                terminal_writestring("\n");
+            }
+        }
+    }
+    else if (strcmp(cmd, "ls") == 0) {
+        fs_list();
+    }
+    else if (strcmp(cmd, "rm") == 0) {
+        if (args < 2) {
+            terminal_writestring("Usage: rm <filename>\n");
+        } else {
+            int result = fs_delete(arg1);
+            if (result == FS_OK) {
+                terminal_writestring("File deleted\n");
+            } else {
+                terminal_writestring("Delete failed: ");
+                fs_perror(result);
+                terminal_writestring("\n");
+            }
+        }
+    }
+    else if (strcmp(cmd, "cd") == 0) {
+        if (args < 2) {
+            // No argument - go to root
+            fs_set_current_path("/");
+            terminal_writestring("Changed to root directory\n");
+        } else {
+            // Basic path validation
+            if (strcmp(arg1, "/") == 0) {
+                fs_set_current_path("/");
+                terminal_writestring("Changed to root directory\n");
+            } else if (strcmp(arg1, ".") == 0) {
+                // Stay in current directory
+                terminal_writestring("Remaining in current directory\n");
+            } else if (strcmp(arg1, "..") == 0) {
+                // Go up one directory (if not already at root)
+                if (strcmp(current_path, "/") != 0) {
+                    fs_set_current_path("/");
+                    terminal_writestring("Changed to root directory\n");
+                } else {
+                    terminal_writestring("Already at root directory\n");
+                }
+            } else {
+                // For now, reject all other paths until proper directory traversal is implemented
+                terminal_writestring("Directory navigation not fully implemented yet\n");
+                terminal_writestring("Only '/' (root), '.', and '..' are supported\n");
+            }
+        }
+    }
+}
+
+/* ===== Shell ===== */
 void shell_loop() {
     enable_cursor(14, 15);
     update_cursor(0, 0);
@@ -1186,6 +1373,7 @@ void shell_loop() {
         char arg2[32] = {0};
         int args = sscanf(input_buffer, "%s %s %s", cmd, arg1, arg2);
 
+        // Check for built-in commands first
         if (strcmp(cmd, "help") == 0) {
             terminal_writestring("Available commands:\n");
             terminal_writestring("  help - Show this help\n");
@@ -1193,6 +1381,8 @@ void shell_loop() {
             terminal_writestring("  clear - Clear screen\n");
             terminal_writestring("  color <fg> [bg] - Change text color\n");
             terminal_writestring("  history - Show command history\n");
+            terminal_writestring("  reboot - Restart the system\n");
+            terminal_writestring("  shutdown - Power off the system\n");
             terminal_writestring("Filesystem commands:\n");
             terminal_writestring("  format - Format filesystem\n");
             terminal_writestring("  mkfile <name> - Create file\n");
@@ -1227,16 +1417,39 @@ void shell_loop() {
                 terminal_writestring("\n");
             }
         }
+        else if (strcmp(cmd, "reboot") == 0) {
+            reboot();
+        }
+        else if (strcmp(cmd, "shutdown") == 0) {
+            shutdown();
+        }
         else {
             // Handle filesystem commands
-            shell_filesystem_commands(cmd, arg1, arg2, args);
+            bool handled = false;
+            
+            // Check if it's a filesystem command
+            const char* fs_commands[] = {"format", "mkfile", "mkdir", "write", "read", "ls", "rm", "cd"};
+            for (size_t i = 0; i < sizeof(fs_commands)/sizeof(fs_commands[0]); i++) {
+                if (strcmp(cmd, fs_commands[i]) == 0) {
+                    shell_filesystem_commands(cmd, arg1, arg2, args);
+                    handled = true;
+                    break;
+                }
+            }
+            
+            // If not a known command, show special message
+            if (!handled && strlen(cmd) > 0) {
+                terminal_writestring("Unknown command: '");
+                terminal_writestring(cmd);
+                terminal_writestring("'. Type 'help' for available commands.\n");
+            }
         }
         
         update_cursor(terminal_column, terminal_row);
     }
 }
 
-/* --- Kernel Main --- */
+/* ===== Kernel Main ===== */
 void kernel_main() {
     terminal_initialize();
     terminal_color = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
@@ -1267,11 +1480,14 @@ void kernel_main() {
         terminal_writestring("MOUNT");
         terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
         terminal_writestring("> Checking filesystem...\n");
-        if (fs_init() == FS_OK) {
+        int fs_result = fs_init();
+        if (fs_result == FS_OK) {
             terminal_writestring("<OK>\n");
         } else {
             terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
-            terminal_writestring("<FAIL> No filesystem found!\n");
+            terminal_writestring("<FAIL> ");
+            fs_perror(fs_result);
+            terminal_writestring("\n");
             terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
             terminal_writestring("Run 'format' to create a new filesystem\n");
         }

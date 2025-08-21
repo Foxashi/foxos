@@ -1,0 +1,114 @@
+# FoxOS GRUB Theme
+desktop-image: "background_final.png"
+title-font: "unicode"
+title-color: "#ff7300ff"
+message-color: "#FFFFFF"
+message-font: "unicode"
+
+# Main menu background
++ progress_bar {
+    id = "menu_bg"
+    left = 20%
+    top = 30%
+    width = 60%
+    height = 40%
+    border_color = "#00000000"
+    fill_color = "#202020"   
+}
+
+# Main menu
++ boot_menu {
+    left = 20%
+    top = 30%
+    width = 60%
+    height = 40%
+    item_font = "unicode"
+    item_color = "#FFFFFF"
+    item_height = 30
+    item_padding = 10
+    selected_item_color = "#d900ffff"
+    selected_item_bgcolor = "#FFD700"
+    icon_width = 0
+}
+
+# Title background
++ progress_bar {
+    id = "title_bg"
+    left = 15%
+    top = 10%
+    width = 70%
+    height = 40
+    border_color = "#00000000"
+    fill_color = "#202020"
+}
+
+# Title text
++ label {
+    top = 10%
+    left = 0%
+    width = 100%
+    align = "center"
+    color = "#ff7300ff"
+    font = "unicode"
+    text = "「FOXOS」にようこそ！"
+    height = 80
+}
+
+# Timeout background
++ progress_bar {
+    id = "timeout_bg"
+    left = 20%
+    top = 75%
+    width = 60%
+    height = 40
+    border_color = "#00000000"
+    fill_color = "#202020"
+}
+
+# Timeout text
++ label {
+    id = "__timeout__"
+    left = 25%
+    top = 75%
+    width = 50%
+    align = "center"
+    color = "#FFFFFF"
+    font = "unicode"
+    text = "Booting in %d seconds"
+    height = 20
+}
+
+# Timeout progress bar 
++ progress_bar {
+    id = "__timeout__"
+    left = 25%
+    top = 80%
+    height = 20
+    width = 50%
+    border_color = "#FFD700"
+    border_width = 2
+    fill_color = "#FF4500"
+}
+
+# Footer background
++ progress_bar {
+    id = "footer_bg"
+    left = 10%
+    top = 90%
+    width = 80%
+    height = 25
+    border_color = "#00000000"
+    fill_color = "#202020"
+}
+
+# Footer text
++ label {
+    left = 0%
+    top = 90%
+    width = 100%
+    align = "center"
+    color = "#ff7300ff"
+    font = "unicode"
+    text = "Hi Twins! よろしくお願いします"
+    height = 20
+}
