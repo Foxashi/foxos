@@ -11,9 +11,9 @@ Here's a preview of the operating system
 
 Boot:
 
-<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/17887868-ec35-4097-8475-6ef242598ec0" />
+<img width="912" height="740" alt="image" src="https://github.com/user-attachments/assets/545bc951-a74f-4f70-9b13-2db749d993cc" />
 
-And yes I'm using grub as the bootloader since it's my favourite bootloader.
+And yes I'm using grub as the bootloader since it's my favourite bootloader. OMG RAMLETHAL!!!!!
 
 Operating System:
 
