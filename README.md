@@ -33,6 +33,7 @@ With the filesystem. Default directories for now.
 
 Goals:
 
+-> Convert to 64-bit and add Rust into the kernel <BR>
 -> GUI <BR>
 -> Support for Japanese Text <BR>
 -> Enchanced File System <BR> 
