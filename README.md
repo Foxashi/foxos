@@ -7,6 +7,8 @@ At the moment it's really buggy, messy and some stuff may seem hardcoded or rush
 There is a filesystem but it's really bare bones
 Also there's no disk detection (too lazy to implement that at the moment)
 
+![homelander-ezgif com-optimize](https://github.com/user-attachments/assets/5635c6ef-1099-4e3a-8bf6-fffc181d3eaa)
+
 Here's a preview of the operating system
 
 Boot:
