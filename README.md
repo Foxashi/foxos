@@ -7,6 +7,8 @@ At the moment it's really buggy, messy and some stuff may seem hardcoded or rush
 There is a filesystem but it's really bare bones
 Also there's no disk detection (too lazy to implement that at the moment)
 
+![homelander-ezgif com-optimize](https://github.com/user-attachments/assets/5635c6ef-1099-4e3a-8bf6-fffc181d3eaa)
+
 Here's a preview of the operating system
 
 Boot:
@@ -23,9 +25,9 @@ And this is how to looks without the filesystem
 
 File System formatted:
 
-<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/1c8f0529-8e79-4567-bb6b-e7ae63cf993d" />
+<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/66786d16-195b-40a1-82aa-c383243dfef4" />
 
-With the filesystem 
+With the filesystem. Default directories for now.
 
 
 
@@ -35,3 +37,5 @@ Goals:
 -> Support for Japanese Text <BR>
 -> Enchanced File System <BR> 
 -> Text Editor <BR>
+-> Compiler <BR>
+-> Run Doom and Bad Apple on it <BR>
