@@ -16,6 +16,7 @@
 void terminal_writestring(const char* data);
 void reboot();
 void shutdown();
+int fs_create(const char* filename, uint8_t attributes);
 
 /* ===== Custom String Functions ===== */
 
@@ -120,6 +121,32 @@ char* strchr(const char* s, int c) {
     return NULL;
 }
 
+// Implement strrchr function
+char* strrchr(const char* s, int c) {
+    if (s == NULL) return NULL;
+    
+    const char *found = NULL;
+    while (*s != '\0') {
+        if (*s == (char)c) {
+            found = s;
+        }
+        s++;
+    }
+    return (char*)found;
+}
+
+// Implement strcat function
+char* strcat(char* dest, const char* src) {
+    if (dest == NULL || src == NULL) return dest;
+    
+    char* ptr = dest + strlen(dest);
+    while (*src != '\0') {
+        *ptr++ = *src++;
+    }
+    *ptr = '\0';
+    return dest;
+}
+
 // Implement tolower function
 int tolower(int c) {
     if (c >= 'A' && c <= 'Z') {
@@ -163,6 +190,8 @@ int strcasecmp(const char* s1, const char* s2) {
 #define FS_FULL         -4
 #define FS_IO_ERROR     -5
 #define FS_INVALID_NAME -6
+#define FS_NO_DISK      -7
+#define FS_UNFORMATTED  -8
 
 #define MAX_PATH_LEN 256
 static char current_path[MAX_PATH_LEN] = "/";
@@ -189,18 +218,35 @@ typedef struct {
     uint8_t reserved[3];  // Padding
 } dir_entry_t;
 
+/* ===== Disk Emulation ===== */
+// Simulated disk storage
+static uint8_t simulated_disk[FS_MAX_BLOCKS * FS_BLOCK_SIZE];
+static bool disk_initialized = false;
+
 /* ===== Disk Driver Interface ===== */
 bool disk_read(uint32_t block, void* buffer) {
-    // TODO: Implement actual disk reading
-    // For now, just simulate success
-    (void)block; // Silence unused parameter warning
-    memset(buffer, 0, FS_BLOCK_SIZE);
+    if (block >= FS_MAX_BLOCKS) return false;
+    
+    // Initialize disk if not already done
+    if (!disk_initialized) {
+        memset(simulated_disk, 0, sizeof(simulated_disk));
+        disk_initialized = true;
+    }
+    
+    memcpy(buffer, simulated_disk + (block * FS_BLOCK_SIZE), FS_BLOCK_SIZE);
     return true;
 }
 
 bool disk_write(uint32_t block, void* buffer) {
-    (void)block; 
-    (void)buffer;
+    if (block >= FS_MAX_BLOCKS) return false;
+    
+    // Initialize disk if not already done
+    if (!disk_initialized) {
+        memset(simulated_disk, 0, sizeof(simulated_disk));
+        disk_initialized = true;
+    }
+    
+    memcpy(simulated_disk + (block * FS_BLOCK_SIZE), buffer, FS_BLOCK_SIZE);
     return true;
 }
 
@@ -260,6 +306,11 @@ void delay(uint32_t count) {
 
 // Initialize the file system (read superblock, FAT, and root directory)
 int fs_init() {
+    // Check if disk is detected first
+    if (!disk_detected()) {
+        return FS_NO_DISK;
+    }
+
     // Read superblock (block 0)
     if (!disk_read(0, &superblock)) {
         return FS_IO_ERROR;
@@ -267,7 +318,7 @@ int fs_init() {
 
     // Check if filesystem exists
     if (superblock.magic != FS_MAGIC) {
-        return FS_NOT_FOUND;
+        return FS_UNFORMATTED;
     }
 
     // Read FAT (starts at block 1)
@@ -288,8 +339,22 @@ int fs_init() {
     return FS_OK;
 }
 
+// Create default directories during formatting
+void create_default_directories() {
+    const char* default_dirs[] = {"bin", "home", "tmp", "usr", "var"};
+    size_t num_dirs = sizeof(default_dirs)/sizeof(default_dirs[0]);
+    for (size_t i = 0; i < num_dirs; i++) {
+        fs_create(default_dirs[i], FS_ATTR_DIR);
+    }
+}
+
 // Format a new filesystem
 int fs_format() {
+    // Check if disk is detected first
+    if (!disk_detected()) {
+        return FS_NO_DISK;
+    }
+
     // Initialize superblock
     superblock.magic = FS_MAGIC;
     superblock.block_count = FS_MAX_BLOCKS;
@@ -337,6 +402,9 @@ int fs_format() {
     memcpy(current_dir, root_dir, sizeof(current_dir));
     current_dir_block = FS_ROOT_DIR_BLOCK;
     fs_initialized = true;
+
+    // Create default directories
+    create_default_directories();
 
     return FS_OK;
 }
@@ -389,8 +457,13 @@ bool fs_is_valid_filename(const char* filename) {
     return true;
 }
 
-// Create a new file or directory
+// Create a new file or directory (FIXED VERSION)
 int fs_create(const char* filename, uint8_t attributes) {
+    // Check if disk is detected first
+    if (!disk_detected()) {
+        return FS_NO_DISK;
+    }
+
     // Validate filename
     if (!fs_is_valid_filename(filename)) {
         return FS_INVALID_NAME;
@@ -418,11 +491,68 @@ int fs_create(const char* filename, uint8_t attributes) {
     strncpy(entry->filename, filename, FS_FILENAME_LEN);
     entry->size = 0;
     entry->attributes = attributes;
-    entry->first_block = 0xFFFF;  // No blocks allocated yet
 
-    // Write directory back to disk
+    if (attributes & FS_ATTR_DIR) {
+        // Allocate a block for the directory
+        int new_block = fs_find_free_block();
+        if (new_block == -1) {
+            // Free the directory entry we just took
+            memset(entry, 0, sizeof(dir_entry_t));
+            return FS_FULL;
+        }
+        entry->first_block = new_block;
+        
+        // Mark the block as used in FAT
+        fat_table[new_block].next_block = 0xFFFE; // Mark as directory block
+
+        // Initialize the directory block with . and ..
+        dir_entry_t new_dir[FS_MAX_FILES] = {0};
+        
+        // Create . entry
+        strcpy(new_dir[0].filename, ".");
+        new_dir[0].attributes = FS_ATTR_DIR;
+        new_dir[0].first_block = new_block;
+        
+        // Create .. entry
+        strcpy(new_dir[1].filename, "..");
+        new_dir[1].attributes = FS_ATTR_DIR;
+        new_dir[1].first_block = current_dir_block; // Parent directory block
+
+        // Write the new directory to disk
+        if (!disk_write(new_block, new_dir)) {
+            // If write fails, free the block and the directory entry
+            fat_table[new_block].next_block = 0xFFFF; // Mark as free again
+            memset(entry, 0, sizeof(dir_entry_t));
+            return FS_IO_ERROR;
+        }
+
+        // Update FAT and superblock
+        superblock.free_blocks--;
+    } else {
+        entry->first_block = 0xFFFF;  // No blocks allocated yet for files
+    }
+
+    // Write directory back to disk - THIS IS THE CRITICAL FIX
     if (!disk_write(current_dir_block, current_dir)) {
+        // If we created a directory, we need to free the block
+        if (attributes & FS_ATTR_DIR) {
+            fat_table[entry->first_block].next_block = 0xFFFF;
+            superblock.free_blocks++;
+        }
+        // Free the directory entry
+        memset(entry, 0, sizeof(dir_entry_t));
         return FS_IO_ERROR;
+    }
+
+    // Update FAT and superblock on disk if we created a directory
+    if (attributes & FS_ATTR_DIR) {
+        if (!disk_write(1, fat_table)) {
+            // Handle error: we've already written the directory, so this is bad
+            return FS_IO_ERROR;
+        }
+        if (!disk_write(0, &superblock)) {
+            return FS_IO_ERROR;
+        }
     }
 
     return FS_OK;
@@ -430,6 +560,11 @@ int fs_create(const char* filename, uint8_t attributes) {
 
 // Write data to a file
 int fs_write(const char* filename, const void* data, uint32_t size) {
+    // Check if disk is detected first
+    if (!disk_detected()) {
+        return FS_NO_DISK;
+    }
+
     // Find the file
     dir_entry_t* entry = fs_find_file(filename);
     if (!entry) {
@@ -478,7 +613,7 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
         }
     }
 
-// Write data to blocks
+    // Write data to blocks
     uint32_t bytes_written = 0;
     uint16_t current_block = entry->first_block;
     const uint8_t* data_ptr = (const uint8_t*)data;
@@ -517,6 +652,11 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
 
 // Read data from a file
 int fs_read(const char* filename, void* buffer, uint32_t max_size) {
+    // Check if disk is detected first
+    if (!disk_detected()) {
+        return FS_NO_DISK;
+    }
+
     // Find the file
     dir_entry_t* entry = fs_find_file(filename);
     if (!entry) {
@@ -578,6 +718,11 @@ void fs_list() {
 
 // Delete a file
 int fs_delete(const char* filename) {
+    // Check if disk is detected first
+    if (!disk_detected()) {
+        return FS_NO_DISK;
+    }
+
     // Find the file
     int entry_index = -1;
     for (int i = 0; i < FS_MAX_FILES; i++) {
@@ -631,6 +776,129 @@ void fs_set_current_path(const char* path) {
     current_path[MAX_PATH_LEN-1] = '\0';
 }
 
+// Enhanced cd command implementation (FIXED VERSION)
+void handle_cd_command(const char* path) {
+    if (path == NULL || strlen(path) == 0) {
+        // No argument - go to root
+        fs_set_current_path("/");
+        if (!disk_read(FS_ROOT_DIR_BLOCK, current_dir)) {
+            terminal_writestring("Error reading root directory\n");
+            return;
+        }
+        current_dir_block = FS_ROOT_DIR_BLOCK;
+        terminal_writestring("Changed to root directory\n");
+        return;
+    }
+
+    // Handle absolute paths
+    if (path[0] == '/') {
+        // Absolute path - start from root
+        fs_set_current_path("/");
+        if (!disk_read(FS_ROOT_DIR_BLOCK, current_dir)) {
+            terminal_writestring("Error reading root directory\n");
+            return;
+        }
+        current_dir_block = FS_ROOT_DIR_BLOCK;
+        
+        // Skip the leading slash for processing
+        if (strlen(path) > 1) {
+            handle_cd_command(path + 1);
+        }
+        return;
+    }
+
+    // Handle parent directory
+    if (strcmp(path, "..") == 0) {
+        if (strcmp(current_path, "/") == 0) {
+            terminal_writestring("Already at root directory\n");
+            return;
+        }
+        
+        // Find the ".." entry to get the parent directory block
+        dir_entry_t* parent_entry = fs_find_file("..");
+        if (parent_entry == NULL) {
+            terminal_writestring("Error: Parent directory entry not found\n");
+            return;
+        }
+        
+        // Read the parent directory
+        if (!disk_read(parent_entry->first_block, current_dir)) {
+            terminal_writestring("Error reading parent directory\n");
+            return;
+        }
+        current_dir_block = parent_entry->first_block;
+        
+        // Update the current path string
+        char* last_slash = strrchr(current_path, '/');
+        if (last_slash != NULL) {
+            if (last_slash == current_path) {
+                // We're at the root after removing
+                current_path[1] = '\0'; // Keep the root slash
+            } else {
+                *last_slash = '\0';
+            }
+        }
+        
+        terminal_writestring("Changed to parent directory\n");
+        return;
+    }
+
+    // Handle current directory
+    if (strcmp(path, ".") == 0) {
+        terminal_writestring("Remaining in current directory\n");
+        return;
+    }
+
+    // Handle regular directory navigation
+    dir_entry_t* entry = fs_find_file(path);
+    if (entry == NULL) {
+        terminal_writestring("Directory not found: ");
+        terminal_writestring(path);
+        terminal_writestring("\n");
+        return;
+    }
+
+    if (!(entry->attributes & FS_ATTR_DIR)) {
+        terminal_writestring("Not a directory: ");
+        terminal_writestring(path);
+        terminal_writestring("\n");
+        return;
+    }
+
+    // Save the current directory block before changing
+    uint32_t old_dir_block = current_dir_block;
+    
+    // Read the new directory contents
+    if (!disk_read(entry->first_block, current_dir)) {
+        terminal_writestring("Error reading directory\n");
+        // Restore the original directory
+        disk_read(old_dir_block, current_dir);
+        current_dir_block = old_dir_block;
+        return;
+    }
+    
+    // Only update path and directory block after successful read
+    current_dir_block = entry->first_block;
+    
+    // Update current path
+    if (strcmp(current_path, "/") == 0) {
+        char new_path[MAX_PATH_LEN];
+        strcpy(new_path, "/");
+        strcat(new_path, path);
+        fs_set_current_path(new_path);
+    } else {
+        char new_path[MAX_PATH_LEN];
+        strcpy(new_path, current_path);
+        strcat(new_path, "/");
+        strcat(new_path, path);
+        fs_set_current_path(new_path);
+    }
+    
+    terminal_writestring("Changed to directory: ");
+    terminal_writestring(path);
+    terminal_writestring("\n");
+}
+
 // Improved error reporting
 void fs_perror(int error_code) {
     switch(error_code) {
@@ -641,7 +909,8 @@ void fs_perror(int error_code) {
         case FS_FULL: terminal_writestring("Disk full"); break;
         case FS_IO_ERROR: terminal_writestring("Disk I/O error"); break;
         case FS_INVALID_NAME: terminal_writestring("Invalid filename"); break;
-        default: terminal_writestring("Unknown error");
+        case FS_NO_DISK: terminal_writestring("No disk detected"); break;
+        case FS_UNFORMATTED: terminal_writestring("Filesystem not found or formatted"); break;
     }
 }
 
@@ -1178,7 +1447,7 @@ void reboot() {
     asm volatile ("cli");
     do {
         temp = inb(0x64);
-        if (temp & 0x01) inb(0x60);
+        if (temp & 0x01) inb(0.60);
     } while (temp & 0x02);
     
     outb(0x64, 0xFE);
@@ -1324,30 +1593,9 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
     }
     else if (strcmp(cmd, "cd") == 0) {
         if (args < 2) {
-            // No argument - go to root
-            fs_set_current_path("/");
-            terminal_writestring("Changed to root directory\n");
+            handle_cd_command(NULL); // Go to root if no argument
         } else {
-            // Basic path validation
-            if (strcmp(arg1, "/") == 0) {
-                fs_set_current_path("/");
-                terminal_writestring("Changed to root directory\n");
-            } else if (strcmp(arg1, ".") == 0) {
-                // Stay in current directory
-                terminal_writestring("Remaining in current directory\n");
-            } else if (strcmp(arg1, "..") == 0) {
-                // Go up one directory (if not already at root)
-                if (strcmp(current_path, "/") != 0) {
-                    fs_set_current_path("/");
-                    terminal_writestring("Changed to root directory\n");
-                } else {
-                    terminal_writestring("Already at root directory\n");
-                }
-            } else {
-                // For now, reject all other paths until proper directory traversal is implemented
-                terminal_writestring("Directory navigation not fully implemented yet\n");
-                terminal_writestring("Only '/' (root), '.', and '..' are supported\n");
-            }
+            handle_cd_command(arg1);
         }
     }
 }
@@ -1483,7 +1731,11 @@ void kernel_main() {
         int fs_result = fs_init();
         if (fs_result == FS_OK) {
             terminal_writestring("<OK>\n");
-        } else {
+        } else if (fs_result == FS_NO_DISK) {
+            terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
+            terminal_writestring("<FAIL> No disk detected\n");
+            terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+        } else if (fs_result == FS_UNFORMATTED) {
             terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
             terminal_writestring("<FAIL> ");
             fs_perror(fs_result);
