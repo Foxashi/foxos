@@ -23,9 +23,9 @@ And this is how to looks without the filesystem
 
 File System formatted:
 
-<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/1c8f0529-8e79-4567-bb6b-e7ae63cf993d" />
+<img width="832" height="540" alt="image" src="https://github.com/user-attachments/assets/66786d16-195b-40a1-82aa-c383243dfef4" />
 
-With the filesystem 
+With the filesystem. Default directories for now.
 
 
 
