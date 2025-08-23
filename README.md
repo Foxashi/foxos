@@ -35,3 +35,5 @@ Goals:
 -> Support for Japanese Text <BR>
 -> Enchanced File System <BR> 
 -> Text Editor <BR>
+-> Compiler <BR>
+-> Run Doom and Bad Apple on it <BR>
