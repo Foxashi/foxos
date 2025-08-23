@@ -1725,7 +1725,7 @@ void kernel_main() {
         // Initialize file system
         terminal_writestring("<");
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_CYAN, VGA_COLOR_BLACK));
-        terminal_writestring("MOUNT");
+        terminal_writestring("CHECK");
         terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
         terminal_writestring("> Checking filesystem...\n");
         int fs_result = fs_init();
