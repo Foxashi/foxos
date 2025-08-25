@@ -173,6 +173,8 @@ int strcasecmp(const char* s1, const char* s2) {
 #define FS_MAX_BLOCKS 1024        // 512KB total storage
 #define FS_MAX_FILES 128
 #define FS_FILENAME_LEN 32
+#define DIR_ENTRIES_PER_BLOCK (FS_BLOCK_SIZE / sizeof(dir_entry_t))
+
 #define FS_MAGIC 0x464F5800       // "FOX\0"
 #define FS_ROOT_DIR_BLOCK 2       // Block where root directory resides
 
@@ -250,13 +252,30 @@ bool disk_write(uint32_t block, void* buffer) {
     return true;
 }
 
+
+
+/* ===== Directory Block I/O Helpers (prevent 512-byte over/underflow) ===== */
+static bool dir_read_block(uint32_t block, dir_entry_t* out_entries) {
+    uint8_t buf[FS_BLOCK_SIZE];
+    if (!disk_read(block, buf)) return false;
+    // Copy only up to our in-memory directory size
+    memcpy(out_entries, buf, sizeof(dir_entry_t) * DIR_ENTRIES_PER_BLOCK);
+    return true;
+}
+
+static bool dir_write_block(uint32_t block, const dir_entry_t* in_entries) {
+    uint8_t buf[FS_BLOCK_SIZE];
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf, in_entries, sizeof(dir_entry_t) * DIR_ENTRIES_PER_BLOCK);
+    return disk_write(block, buf);
+}
 bool disk_detected() {
     return true;
 }
 
 /* ===== File System Global State ===== */
 static fat_entry_t fat_table[FS_MAX_BLOCKS];
-static dir_entry_t current_dir[FS_MAX_FILES];
+static dir_entry_t current_dir[DIR_ENTRIES_PER_BLOCK];
 static uint32_t current_dir_block = FS_ROOT_DIR_BLOCK;
 static fs_superblock_t superblock;
 static bool fs_initialized = false;  // Track if filesystem is initialized
@@ -385,7 +404,7 @@ int fs_format() {
     }
 
     // Initialize root directory
-    dir_entry_t root_dir[FS_MAX_FILES] = {0};
+    dir_entry_t root_dir[DIR_ENTRIES_PER_BLOCK] = {0};
     root_dir[0].attributes = FS_ATTR_DIR;
     strcpy(root_dir[0].filename, ".");
     root_dir[0].first_block = FS_ROOT_DIR_BLOCK;
@@ -394,7 +413,7 @@ int fs_format() {
     strcpy(root_dir[1].filename, "..");
     root_dir[1].first_block = FS_ROOT_DIR_BLOCK;
 
-    if (!disk_write(FS_ROOT_DIR_BLOCK, root_dir)) {
+    if (!dir_write_block(FS_ROOT_DIR_BLOCK, root_dir)) {
         return FS_IO_ERROR;
     }
 
@@ -423,7 +442,7 @@ int fs_find_free_block() {
 dir_entry_t* fs_find_file(const char* filename) {
     if (filename == NULL) return NULL;
     
-    for (int i = 0; i < FS_MAX_FILES; i++) {
+    for (size_t i = 0; i < DIR_ENTRIES_PER_BLOCK; i++) {
         if (current_dir[i].filename[0] != '\0' && 
             strcmp(current_dir[i].filename, filename) == 0) {
             return &current_dir[i];
@@ -476,7 +495,7 @@ int fs_create(const char* filename, uint8_t attributes) {
 
     // Find empty directory entry
     int entry_index = -1;
-    for (int i = 0; i < FS_MAX_FILES; i++) {
+    for (size_t i = 0; i < DIR_ENTRIES_PER_BLOCK; i++) {
         if (current_dir[i].filename[0] == '\0') {
             entry_index = i;
             break;
@@ -506,7 +525,7 @@ int fs_create(const char* filename, uint8_t attributes) {
         fat_table[new_block].next_block = 0xFFFE; // Mark as directory block
 
         // Initialize the directory block with . and ..
-        dir_entry_t new_dir[FS_MAX_FILES] = {0};
+        dir_entry_t new_dir[DIR_ENTRIES_PER_BLOCK] = {0};
         
         // Create . entry
         strcpy(new_dir[0].filename, ".");
@@ -519,7 +538,7 @@ int fs_create(const char* filename, uint8_t attributes) {
         new_dir[1].first_block = current_dir_block; // Parent directory block
 
         // Write the new directory to disk
-        if (!disk_write(new_block, new_dir)) {
+        if (!dir_write_block(new_block, new_dir)) {
             // If write fails, free the block and the directory entry
             fat_table[new_block].next_block = 0xFFFF; // Mark as free again
             memset(entry, 0, sizeof(dir_entry_t));
@@ -533,7 +552,7 @@ int fs_create(const char* filename, uint8_t attributes) {
     }
 
     // Write directory back to disk - THIS IS THE CRITICAL FIX
-    if (!disk_write(current_dir_block, current_dir)) {
+    if (!dir_write_block(current_dir_block, current_dir)) {
         // If we created a directory, we need to free the block
         if (attributes & FS_ATTR_DIR) {
             fat_table[entry->first_block].next_block = 0xFFFF;
@@ -634,7 +653,7 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
     entry->size = size;
     
     // Update directory
-    if (!disk_write(current_dir_block, current_dir)) {
+    if (!dir_write_block(current_dir_block, current_dir)) {
         return FS_IO_ERROR;
     }
 
@@ -690,7 +709,7 @@ int fs_read(const char* filename, void* buffer, uint32_t max_size) {
 
 // List files in current directory
 void fs_list() {
-    for (int i = 0; i < FS_MAX_FILES; i++) {
+    for (size_t i = 0; i < DIR_ENTRIES_PER_BLOCK; i++) {
         if (current_dir[i].filename[0] != '\0') {
             // File/directory indicator
             if (current_dir[i].attributes & FS_ATTR_DIR) {
@@ -725,7 +744,7 @@ int fs_delete(const char* filename) {
 
     // Find the file
     int entry_index = -1;
-    for (int i = 0; i < FS_MAX_FILES; i++) {
+    for (size_t i = 0; i < DIR_ENTRIES_PER_BLOCK; i++) {
         if (current_dir[i].filename[0] != '\0' && 
             strcmp(current_dir[i].filename, filename) == 0) {
             entry_index = i;
@@ -749,7 +768,7 @@ int fs_delete(const char* filename) {
     memset(&current_dir[entry_index], 0, sizeof(dir_entry_t));
 
     // Update directory, FAT, and superblock
-    if (!disk_write(current_dir_block, current_dir)) {
+    if (!dir_write_block(current_dir_block, current_dir)) {
         return FS_IO_ERROR;
     }
 
@@ -781,7 +800,7 @@ void handle_cd_command(const char* path) {
     if (path == NULL || strlen(path) == 0) {
         // No argument - go to root
         fs_set_current_path("/");
-        if (!disk_read(FS_ROOT_DIR_BLOCK, current_dir)) {
+        if (!dir_read_block(FS_ROOT_DIR_BLOCK, current_dir)) {
             terminal_writestring("Error reading root directory\n");
             return;
         }
@@ -794,7 +813,7 @@ void handle_cd_command(const char* path) {
     if (path[0] == '/') {
         // Absolute path - start from root
         fs_set_current_path("/");
-        if (!disk_read(FS_ROOT_DIR_BLOCK, current_dir)) {
+        if (!dir_read_block(FS_ROOT_DIR_BLOCK, current_dir)) {
             terminal_writestring("Error reading root directory\n");
             return;
         }
@@ -872,7 +891,7 @@ void handle_cd_command(const char* path) {
     if (!disk_read(entry->first_block, current_dir)) {
         terminal_writestring("Error reading directory\n");
         // Restore the original directory
-        disk_read(old_dir_block, current_dir);
+        dir_read_block(old_dir_block, current_dir);
         current_dir_block = old_dir_block;
         return;
     }
