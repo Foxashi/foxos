@@ -1305,7 +1305,9 @@ size_t input_index = 0;
 void print_prompt(void) {
     if (fs_initialized) {
         terminal_writestring("[");
+        terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
         terminal_writestring(current_path);
+        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
         terminal_writestring("] -> ");
     } else {
         terminal_writestring("-> ");
