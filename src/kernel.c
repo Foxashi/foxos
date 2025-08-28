@@ -673,13 +673,22 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
 int fs_read(const char* filename, void* buffer, uint32_t max_size) {
     // Check if disk is detected first
     if (!disk_detected()) {
-        return FS_NO_DISK;
+        return -FS_NO_DISK;
     }
 
     // Find the file
     dir_entry_t* entry = fs_find_file(filename);
     if (!entry) {
-        return FS_NOT_FOUND;
+        return -FS_NOT_FOUND;
+    }
+
+    if (entry -> size == 0) {
+        return 0;
+    }
+
+    uint32_t bytes_to_read = entry -> size;
+    if (bytes_to_read > max_size) {
+        bytes_to_read = max_size;
     }
 
     // Check buffer size
@@ -692,19 +701,19 @@ int fs_read(const char* filename, void* buffer, uint32_t max_size) {
     uint16_t current_block = entry->first_block;
     uint8_t* buffer_ptr = (uint8_t*)buffer;
     
-    while (current_block != 0xFFFF && bytes_read < entry->size) {
-        uint32_t to_read = (entry->size - bytes_read) > FS_BLOCK_SIZE ? 
-                         FS_BLOCK_SIZE : (entry->size - bytes_read);
+    while (current_block != 0xFFFF && bytes_read < bytes_to_read) {
+        uint32_t to_read = (bytes_to_read - bytes_read) > FS_BLOCK_SIZE ? 
+                         FS_BLOCK_SIZE : (bytes_to_read - bytes_read);
         
         if (!disk_read(current_block, buffer_ptr + bytes_read)) {
-            return FS_IO_ERROR;
+            return -FS_IO_ERROR;
         }
         
         bytes_read += to_read;
         current_block = fat_table[current_block].next_block;
     }
 
-    return FS_OK;
+    return bytes_read;
 }
 
 // List files in current directory
@@ -1064,22 +1073,37 @@ int sscanf(const char *str, const char *fmt, ...) {
     va_start(args, fmt);
     
     int count = 0;
-    while (*fmt && *str) {
+    const char *ptr = str;
+    
+    while (*fmt && *ptr) {
         if (*fmt == '%') {
             fmt++;
             if (*fmt == 's') {
                 char *out = va_arg(args, char*);
-                while (*str && *str != ' ' && *str != '\t') {
-                    *out++ = *str++;
+                // Skip whitespace
+                while (*ptr == ' ' || *ptr == '\t') ptr++;
+                
+                // Handle quoted strings
+                if (*ptr == '"') {
+                    ptr++; // Skip opening quote
+                    while (*ptr && *ptr != '"') {
+                        *out++ = *ptr++;
+                    }
+                    if (*ptr == '"') ptr++; // Skip closing quote
+                } else {
+                    // Regular string
+                    while (*ptr && *ptr != ' ' && *ptr != '\t') {
+                        *out++ = *ptr++;
+                    }
                 }
                 *out = '\0';
                 count++;
             }
             fmt++;
         } else {
-            if (*fmt != *str) break;
+            if (*fmt != *ptr) break;
             fmt++;
-            str++;
+            ptr++;
         }
     }
     va_end(args);
@@ -1563,16 +1587,35 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
         }
     }
     else if (strcmp(cmd, "write") == 0) {
-        if (args < 3) {
+    // Special handling for write command to support spaces
+        if (args < 2) {
             terminal_writestring("Usage: write <filename> <text>\n");
         } else {
-            int result = fs_write(arg1, arg2, strlen(arg2)+1);
-            if (result == FS_OK) {
-                terminal_writestring("Write successful\n");
+            // Find the text part (after the filename)
+            char *text_start = strchr(input_buffer + strlen("write") + 1, ' ');
+            if (text_start) {
+                // Skip whitespace to find the actual text
+                while (*text_start == ' ') text_start++;
+                
+                // If text is quoted, handle that
+                if (*text_start == '"') {
+                    text_start++;
+                    char *end_quote = strchr(text_start, '"');
+                    if (end_quote) {
+                        *end_quote = '\0'; // Terminate at closing quote
+                    }
+                }
+                
+                int result = fs_write(arg1, text_start, strlen(text_start)+1);
+                if (result == FS_OK) {
+                    terminal_writestring("Write successful\n");
+                } else {
+                    terminal_writestring("Write failed: ");
+                    fs_perror(result);
+                    terminal_writestring("\n");
+                }
             } else {
-                terminal_writestring("Write failed: ");
-                fs_perror(result);
-                terminal_writestring("\n");
+                terminal_writestring("Usage: write <filename> <text>\n");
             }
         }
     }
@@ -1580,15 +1623,20 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
         if (args < 2) {
             terminal_writestring("Usage: read <filename>\n");
         } else {
-            char buffer[FS_BLOCK_SIZE];
-            int result = fs_read(arg1, buffer, sizeof(buffer));
-            if (result == FS_OK) {
+            char buffer[FS_BLOCK_SIZE + 1]; // +1 for null terminator
+            int result = fs_read(arg1, buffer, sizeof(buffer) - 1); // Leave space for null terminator
+            
+            if (result < 0) {
+                terminal_writestring("Read failed: ");
+                fs_perror(-result);
+                terminal_writestring("\n");
+            } else if (result == 0) {
+                terminal_writestring("File is empty\n");
+            } else {
+                // Null-terminate the buffer and display
+                buffer[result] = '\0';
                 terminal_writestring("File contents: ");
                 terminal_writestring(buffer);
-                terminal_writestring("\n");
-            } else {
-                terminal_writestring("Read failed: ");
-                fs_perror(result);
                 terminal_writestring("\n");
             }
         }
