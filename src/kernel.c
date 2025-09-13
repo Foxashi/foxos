@@ -13,6 +13,12 @@
 #endif
 
 /* ===== Forward Declarations ===== */
+void delay(uint32_t count);
+void outb(uint16_t port, uint8_t value);
+uint8_t inb(uint16_t port);
+void outw(uint16_t port, uint16_t value);
+uint16_t inw(uint16_t port);
+void io_wait(void);
 void terminal_writestring(const char* data);
 void reboot();
 void shutdown();
@@ -23,7 +29,7 @@ int fs_create(const char* filename, uint8_t attributes);
 // Added bounds checking to prevent buffer overflows
 size_t strlen(const char* str) {
     if (str == NULL) return 0;
-    
+
     size_t len = 0;
     while (str[len] != '\0') {
         len++;
@@ -33,7 +39,7 @@ size_t strlen(const char* str) {
 
 int strcmp(const char* s1, const char* s2) {
     if (s1 == NULL || s2 == NULL) return -1;
-    
+
     while (*s1 && (*s1 == *s2)) {
         s1++;
         s2++;
@@ -43,7 +49,7 @@ int strcmp(const char* s1, const char* s2) {
 
 int strncmp(const char* s1, const char* s2, size_t n) {
     if (s1 == NULL || s2 == NULL || n == 0) return 0;
-    
+
     for (size_t i = 0; i < n; i++) {
         unsigned char c1 = (unsigned char)s1[i];
         unsigned char c2 = (unsigned char)s2[i];
@@ -55,7 +61,7 @@ int strncmp(const char* s1, const char* s2, size_t n) {
 
 char* strcpy(char* dest, const char* src) {
     if (dest == NULL || src == NULL) return dest;
-    
+
     char* original_dest = dest;
     while ((*dest++ = *src++));
     return original_dest;
@@ -63,7 +69,7 @@ char* strcpy(char* dest, const char* src) {
 
 char* strncpy(char* dest, const char* src, size_t n) {
     if (dest == NULL || src == NULL || n == 0) return dest;
-    
+
     char* original_dest = dest;
     size_t i = 0;
     for (; i < n - 1 && src[i] != '\0'; i++) dest[i] = src[i];
@@ -73,7 +79,7 @@ char* strncpy(char* dest, const char* src, size_t n) {
 
 void* memset(void* ptr, int value, size_t num) {
     if (ptr == NULL) return NULL;
-    
+
     unsigned char* p = ptr;
     while (num--) {
         *p++ = (unsigned char)value;
@@ -83,7 +89,7 @@ void* memset(void* ptr, int value, size_t num) {
 
 void* memcpy(void* dest, const void* src, size_t n) {
     if (dest == NULL || src == NULL) return dest;
-    
+
     char* d = dest;
     const char* s = src;
     while (n--) {
@@ -94,10 +100,10 @@ void* memcpy(void* dest, const void* src, size_t n) {
 
 void* memmove(void* dest, const void* src, size_t n) {
     if (dest == NULL || src == NULL) return dest;
-    
+
     char* d = dest;
     const char* s = src;
-    
+
     if (d < s) {
         while (n--) *d++ = *s++;
     } else {
@@ -111,7 +117,7 @@ void* memmove(void* dest, const void* src, size_t n) {
 // Implement strchr function
 char* strchr(const char* s, int c) {
     if (s == NULL) return NULL;
-    
+
     while (*s != '\0') {
         if (*s == (char)c) {
             return (char*)s;
@@ -124,7 +130,7 @@ char* strchr(const char* s, int c) {
 // Implement strrchr function
 char* strrchr(const char* s, int c) {
     if (s == NULL) return NULL;
-    
+
     const char *found = NULL;
     while (*s != '\0') {
         if (*s == (char)c) {
@@ -138,7 +144,7 @@ char* strrchr(const char* s, int c) {
 // Implement strcat function
 char* strcat(char* dest, const char* src) {
     if (dest == NULL || src == NULL) return dest;
-    
+
     char* ptr = dest + strlen(dest);
     while (*src != '\0') {
         *ptr++ = *src++;
@@ -158,7 +164,7 @@ int tolower(int c) {
 // Implement strcasecmp function
 int strcasecmp(const char* s1, const char* s2) {
     if (s1 == NULL || s2 == NULL) return -1;
-    
+
     while (*s1 && *s2) {
         int diff = tolower(*s1) - tolower(*s2);
         if (diff != 0) return diff;
@@ -228,31 +234,29 @@ static bool disk_initialized = false;
 /* ===== Disk Driver Interface ===== */
 bool disk_read(uint32_t block, void* buffer) {
     if (block >= FS_MAX_BLOCKS) return false;
-    
+
     // Initialize disk if not already done
     if (!disk_initialized) {
         memset(simulated_disk, 0, sizeof(simulated_disk));
         disk_initialized = true;
     }
-    
+
     memcpy(buffer, simulated_disk + (block * FS_BLOCK_SIZE), FS_BLOCK_SIZE);
     return true;
 }
 
 bool disk_write(uint32_t block, void* buffer) {
     if (block >= FS_MAX_BLOCKS) return false;
-    
+
     // Initialize disk if not already done
     if (!disk_initialized) {
         memset(simulated_disk, 0, sizeof(simulated_disk));
         disk_initialized = true;
     }
-    
+
     memcpy(simulated_disk + (block * FS_BLOCK_SIZE), buffer, FS_BLOCK_SIZE);
     return true;
 }
-
-
 
 /* ===== Directory Block I/O Helpers (prevent 512-byte over/underflow) ===== */
 static bool dir_read_block(uint32_t block, dir_entry_t* out_entries) {
@@ -269,8 +273,50 @@ static bool dir_write_block(uint32_t block, const dir_entry_t* in_entries) {
     memcpy(buf, in_entries, sizeof(dir_entry_t) * DIR_ENTRIES_PER_BLOCK);
     return disk_write(block, buf);
 }
+
 bool disk_detected() {
-    return true;
+    // Try to read the first sector (MBR) to detect disk presence
+    uint8_t buffer[512];
+    
+    // Try multiple times to account for disk spin-up time
+    for (int attempts = 0; attempts < 3; attempts++) {
+        // Check disk controller status
+        for (int i = 0; i < 0xFFFF; i++) {
+            if ((inb(0x1F7) & 0xC0) == 0x40) break; // Wait until disk is ready
+        }
+        
+        // Send read command for first sector
+        outb(0x1F6, 0xE0); // Drive 0, Master, LBA 0
+        outb(0x1F2, 1);    // Sector count = 1
+        outb(0x1F3, 0);    // LBA low
+        outb(0x1F4, 0);    // LBA mid
+        outb(0x1F5, 0);    // LBA high
+        outb(0x1F7, 0x20); // Read sector command
+        
+        // Wait for data ready
+        for (int i = 0; i < 0xFFFF; i++) {
+            uint8_t status = inb(0x1F7);
+            if (status & 0x01) return false; // Error
+            if (status & 0x08) break; // Data ready
+        }
+        
+        // Read data
+        for (int i = 0; i < 256; i++) {
+            uint16_t data = inw(0x1F0);
+            buffer[i*2] = data & 0xFF;
+            buffer[i*2+1] = (data >> 8) & 0xFF;
+        }
+        
+        // Check for valid MBR signature (0x55AA at offset 510)
+        if (buffer[510] == 0x55 && buffer[511] == 0xAA) {
+            return true;
+        }
+        
+        // Wait a bit before retrying
+        delay(100000);
+    }
+    
+    return false;
 }
 
 /* ===== File System Global State ===== */
@@ -283,7 +329,7 @@ static bool fs_initialized = false;  // Track if filesystem is initialized
 /* ===== Utility Functions ===== */
 void itoa(int value, char* str, int base) {
     if (str == NULL) return;
-    
+
     char* ptr = str;
     bool negative = false;
     unsigned int u;
@@ -408,7 +454,7 @@ int fs_format() {
     root_dir[0].attributes = FS_ATTR_DIR;
     strcpy(root_dir[0].filename, ".");
     root_dir[0].first_block = FS_ROOT_DIR_BLOCK;
-    
+
     root_dir[1].attributes = FS_ATTR_DIR;
     strcpy(root_dir[1].filename, "..");
     root_dir[1].first_block = FS_ROOT_DIR_BLOCK;
@@ -441,9 +487,9 @@ int fs_find_free_block() {
 // Find a file in the current directory
 dir_entry_t* fs_find_file(const char* filename) {
     if (filename == NULL) return NULL;
-    
+
     for (size_t i = 0; i < DIR_ENTRIES_PER_BLOCK; i++) {
-        if (current_dir[i].filename[0] != '\0' && 
+        if (current_dir[i].filename[0] != '\0' &&
             strcmp(current_dir[i].filename, filename) == 0) {
             return &current_dir[i];
         }
@@ -456,7 +502,7 @@ bool fs_is_valid_filename(const char* filename) {
     if (filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN) {
         return false;
     }
-    
+
     // Check for invalid characters
     const char* invalid_chars = "/\\?*:|\"<>";
     for (size_t i = 0; i < strlen(filename); i++) {
@@ -464,7 +510,7 @@ bool fs_is_valid_filename(const char* filename) {
             return false;
         }
     }
-    
+
     // Check for reserved names
     const char* reserved_names[] = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "LPT1", "LPT2", NULL};
     for (int i = 0; reserved_names[i] != NULL; i++) {
@@ -472,7 +518,7 @@ bool fs_is_valid_filename(const char* filename) {
             return false;
         }
     }
-    
+
     return true;
 }
 
@@ -520,18 +566,18 @@ int fs_create(const char* filename, uint8_t attributes) {
             return FS_FULL;
         }
         entry->first_block = new_block;
-        
+
         // Mark the block as used in FAT
         fat_table[new_block].next_block = 0xFFFE; // Mark as directory block
 
         // Initialize the directory block with . and ..
         dir_entry_t new_dir[DIR_ENTRIES_PER_BLOCK] = {0};
-        
+
         // Create . entry
         strcpy(new_dir[0].filename, ".");
         new_dir[0].attributes = FS_ATTR_DIR;
         new_dir[0].first_block = new_block;
-        
+
         // Create .. entry
         strcpy(new_dir[1].filename, "..");
         new_dir[1].attributes = FS_ATTR_DIR;
@@ -593,7 +639,7 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
     // Calculate needed blocks
     uint32_t blocks_needed = (size + FS_BLOCK_SIZE - 1) / FS_BLOCK_SIZE;
     uint32_t current_blocks = 0;
-    
+
     // Count existing blocks
     uint16_t block = entry->first_block;
     while (block != 0xFFFF) {
@@ -605,7 +651,7 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
     if (blocks_needed > current_blocks) {
         uint32_t additional = blocks_needed - current_blocks;
         uint16_t prev_block = entry->first_block;
-        
+
         // Find last block if exists
         if (prev_block != 0xFFFF) {
             while (fat_table[prev_block].next_block != 0xFFFF) {
@@ -625,7 +671,7 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
             } else {
                 fat_table[prev_block].next_block = new_block;
             }
-            
+
             fat_table[new_block].next_block = 0xFFFF;
             prev_block = new_block;
             superblock.free_blocks--;
@@ -636,22 +682,22 @@ int fs_write(const char* filename, const void* data, uint32_t size) {
     uint32_t bytes_written = 0;
     uint16_t current_block = entry->first_block;
     const uint8_t* data_ptr = (const uint8_t*)data;
-    
+
     while (current_block != 0xFFFF && bytes_written < size) {
-        uint32_t to_write = (size - bytes_written) > FS_BLOCK_SIZE ? 
+        uint32_t to_write = (size - bytes_written) > FS_BLOCK_SIZE ?
                           FS_BLOCK_SIZE : (size - bytes_written);
-        
+
         if (!disk_write(current_block, (void*)(data_ptr + bytes_written))) {
             return FS_IO_ERROR;
         }
-        
+
         bytes_written += to_write;
         current_block = fat_table[current_block].next_block;
     }
 
     // Update file size
     entry->size = size;
-    
+
     // Update directory
     if (!dir_write_block(current_dir_block, current_dir)) {
         return FS_IO_ERROR;
@@ -700,15 +746,15 @@ int fs_read(const char* filename, void* buffer, uint32_t max_size) {
     uint32_t bytes_read = 0;
     uint16_t current_block = entry->first_block;
     uint8_t* buffer_ptr = (uint8_t*)buffer;
-    
+
     while (current_block != 0xFFFF && bytes_read < bytes_to_read) {
-        uint32_t to_read = (bytes_to_read - bytes_read) > FS_BLOCK_SIZE ? 
+        uint32_t to_read = (bytes_to_read - bytes_read) > FS_BLOCK_SIZE ?
                          FS_BLOCK_SIZE : (bytes_to_read - bytes_read);
-        
+
         if (!disk_read(current_block, buffer_ptr + bytes_read)) {
             return -FS_IO_ERROR;
         }
-        
+
         bytes_read += to_read;
         current_block = fat_table[current_block].next_block;
     }
@@ -726,10 +772,10 @@ void fs_list() {
             } else {
                 terminal_writestring("  [F] ");
             }
-            
+
             // Filename
             terminal_writestring(current_dir[i].filename);
-            
+
             // Size (for files)
             if (!(current_dir[i].attributes & FS_ATTR_DIR)) {
                 terminal_writestring(" (");
@@ -738,7 +784,7 @@ void fs_list() {
                 terminal_writestring(size_str);
                 terminal_writestring(" bytes)");
             }
-            
+
             terminal_writestring("\n");
         }
     }
@@ -754,7 +800,7 @@ int fs_delete(const char* filename) {
     // Find the file
     int entry_index = -1;
     for (size_t i = 0; i < DIR_ENTRIES_PER_BLOCK; i++) {
-        if (current_dir[i].filename[0] != '\0' && 
+        if (current_dir[i].filename[0] != '\0' &&
             strcmp(current_dir[i].filename, filename) == 0) {
             entry_index = i;
             break;
@@ -827,7 +873,7 @@ void handle_cd_command(const char* path) {
             return;
         }
         current_dir_block = FS_ROOT_DIR_BLOCK;
-        
+
         // Skip the leading slash for processing
         if (strlen(path) > 1) {
             handle_cd_command(path + 1);
@@ -841,21 +887,21 @@ void handle_cd_command(const char* path) {
             terminal_writestring("Already at root directory\n");
             return;
         }
-        
+
         // Find the ".." entry to get the parent directory block
         dir_entry_t* parent_entry = fs_find_file("..");
         if (parent_entry == NULL) {
             terminal_writestring("Error: Parent directory entry not found\n");
             return;
         }
-        
+
         // Read the parent directory
         if (!disk_read(parent_entry->first_block, current_dir)) {
             terminal_writestring("Error reading parent directory\n");
             return;
         }
         current_dir_block = parent_entry->first_block;
-        
+
         // Update the current path string
         char* last_slash = strrchr(current_path, '/');
         if (last_slash != NULL) {
@@ -866,7 +912,7 @@ void handle_cd_command(const char* path) {
                 *last_slash = '\0';
             }
         }
-        
+
         terminal_writestring("Changed to parent directory\n");
         return;
     }
@@ -895,7 +941,7 @@ void handle_cd_command(const char* path) {
 
     // Save the current directory block before changing
     uint32_t old_dir_block = current_dir_block;
-    
+
     // Read the new directory contents
     if (!disk_read(entry->first_block, current_dir)) {
         terminal_writestring("Error reading directory\n");
@@ -904,10 +950,10 @@ void handle_cd_command(const char* path) {
         current_dir_block = old_dir_block;
         return;
     }
-    
+
     // Only update path and directory block after successful read
     current_dir_block = entry->first_block;
-    
+
     // Update current path
     if (strcmp(current_path, "/") == 0) {
         char new_path[MAX_PATH_LEN];
@@ -921,7 +967,7 @@ void handle_cd_command(const char* path) {
         strcat(new_path, path);
         fs_set_current_path(new_path);
     }
-    
+
     terminal_writestring("Changed to directory: ");
     terminal_writestring(path);
     terminal_writestring("\n");
@@ -979,6 +1025,22 @@ static inline uint16_t vga_entry(unsigned char uc, uint8_t color) {
 #define HISTORY_SIZE 10
 #define CURSOR_BLINK_DELAY 300000
 
+/* ===== Pane System (tmux-like) ===== */
+#define MAX_PANES 4
+
+typedef struct {
+    size_t row, col;                 // cursor within pane (absolute on screen)
+    size_t start_row, end_row;       // inclusive
+    size_t start_col, end_col;       // inclusive
+    uint8_t color;                   // vga_entry_color(...)
+    bool in_use;
+} pane_t;
+
+static pane_t panes[MAX_PANES];
+static int pane_count = 0;
+static int active_pane = 0;
+
+/* ===== Legacy globals (kept for compatibility, but routed to active pane) ===== */
 size_t terminal_row;
 size_t terminal_column;
 uint8_t terminal_color;
@@ -1014,7 +1076,7 @@ void io_wait() {
 void enable_cursor(uint8_t cursor_start, uint8_t cursor_end) {
     outb(0x3D4, 0x0A);
     outb(0x3D5, (inb(0x3D5) & 0xC0) | cursor_start);
-    
+
     outb(0x3D4, 0x0B);
     outb(0x3D5, (inb(0x3D5) & 0xE0) | cursor_end);
 }
@@ -1026,17 +1088,17 @@ void disable_cursor() {
 
 void update_cursor(int x, int y) {
     uint16_t pos = y * VGA_WIDTH + x;
-    
+
     outb(0x3D4, 0x0F);
     outb(0x3D5, (uint8_t)(pos & 0xFF));
-    
+
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
 }
 
 void strlower(char *str) {
     if (str == NULL) return;
-    
+
     for (; *str; str++) {
         if (*str >= 'A' && *str <= 'Z') {
             *str += 32;
@@ -1046,7 +1108,7 @@ void strlower(char *str) {
 
 uint8_t parse_color(const char *name) {
     if (name == NULL) return VGA_COLOR_LIGHT_GREY;
-    
+
     if (strcmp(name, "black") == 0) return VGA_COLOR_BLACK;
     if (strcmp(name, "blue") == 0) return VGA_COLOR_BLUE;
     if (strcmp(name, "green") == 0) return VGA_COLOR_GREEN;
@@ -1068,13 +1130,13 @@ uint8_t parse_color(const char *name) {
 
 int sscanf(const char *str, const char *fmt, ...) {
     if (str == NULL || fmt == NULL) return 0;
-    
+
     va_list args;
     va_start(args, fmt);
-    
+
     int count = 0;
     const char *ptr = str;
-    
+
     while (*fmt && *ptr) {
         if (*fmt == '%') {
             fmt++;
@@ -1082,7 +1144,7 @@ int sscanf(const char *str, const char *fmt, ...) {
                 char *out = va_arg(args, char*);
                 // Skip whitespace
                 while (*ptr == ' ' || *ptr == '\t') ptr++;
-                
+
                 // Handle quoted strings
                 if (*ptr == '"') {
                     ptr++; // Skip opening quote
@@ -1110,23 +1172,57 @@ int sscanf(const char *str, const char *fmt, ...) {
     return count;
 }
 
-/* ===== Terminal Functions ===== */
+/* ===== Pane helpers ===== */
+static inline pane_t* curpane() { return &panes[active_pane]; }
+
+static void pane_clear_region(pane_t* p) {
+    for (size_t y = p->start_row; y <= p->end_row; y++) {
+        for (size_t x = p->start_col; x <= p->end_col; x++) {
+            terminal_buffer[y * VGA_WIDTH + x] = vga_entry(' ', p->color);
+        }
+    }
+    p->row = p->start_row;
+    p->col = p->start_col;
+    update_cursor((int)p->col, (int)p->row);
+}
+
+static void pane_scroll(pane_t* p) {
+    for (size_t y = p->start_row + 1; y <= p->end_row; y++) {
+        for (size_t x = p->start_col; x <= p->end_col; x++) {
+            terminal_buffer[(y-1) * VGA_WIDTH + x] =
+                terminal_buffer[y * VGA_WIDTH + x];
+        }
+    }
+    for (size_t x = p->start_col; x <= p->end_col; x++) {
+        terminal_buffer[p->end_row * VGA_WIDTH + x] = vga_entry(' ', p->color);
+    }
+}
+
+/* ===== Terminal Functions (pane-aware) ===== */
 void terminal_initialize(void) {
-    terminal_row = 0;
-    terminal_column = 0;
-    // Keep current terminal_color instead of resetting it
+    // Clear entire VGA space with the active pane's color (if any), else white on black
+    uint8_t color = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
+    for (int i = 0; i < MAX_PANES; i++) {
+        panes[i].in_use = false;
+    }
+    pane_count = 0;
+    active_pane = 0;
 
     for (size_t y = 0; y < VGA_HEIGHT; y++) {
         for (size_t x = 0; x < VGA_WIDTH; x++) {
-            terminal_buffer[y * VGA_WIDTH + x] = vga_entry(' ', terminal_color);
+            terminal_buffer[y * VGA_WIDTH + x] = vga_entry(' ', color);
         }
     }
-    
+
     enable_cursor(14, 15);
     update_cursor(0, 0);
 }
 
 void terminal_setcolor(uint8_t color) {
+    // Set color for active pane
+    pane_t* p = curpane();
+    p->color = color;
+    // Keep legacy var loosely in sync
     terminal_color = color;
 }
 
@@ -1135,45 +1231,41 @@ void terminal_putentryat(char c, uint8_t color, size_t x, size_t y) {
     terminal_buffer[y * VGA_WIDTH + x] = vga_entry(c, color);
 }
 
-void terminal_putchar(char c) {
+void terminal_putchar_pane(char c, pane_t *p) {
+    if (!p->in_use) return;
+
     if (c == '\n') {
-        terminal_column = 0;
-        if (++terminal_row == VGA_HEIGHT) {
-            for (size_t y = 1; y < VGA_HEIGHT; y++) {
-                for (size_t x = 0; x < VGA_WIDTH; x++) {
-                    terminal_buffer[(y-1)*VGA_WIDTH + x] = terminal_buffer[y*VGA_WIDTH + x];
-                }
-            }
-            for (size_t x = 0; x < VGA_WIDTH; x++) {
-                terminal_putentryat(' ', terminal_color, x, VGA_HEIGHT-1);
-            }
-            terminal_row = VGA_HEIGHT-1;
+        p->col = p->start_col;
+        if (++p->row > p->end_row) {
+            p->row = p->end_row;
+            pane_scroll(p);
         }
     } else {
-        terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
-        if (++terminal_column == VGA_WIDTH) {
-            terminal_column = 0;
-            if (++terminal_row == VGA_HEIGHT) {
-                for (size_t y = 1; y < VGA_HEIGHT; y++) {
-                    for (size_t x = 0; x < VGA_WIDTH; x++) {
-                        terminal_buffer[(y-1)*VGA_WIDTH + x] = terminal_buffer[y*VGA_WIDTH + x];
-                    }
-                }
-                for (size_t x = 0; x < VGA_WIDTH; x++) {
-                    terminal_putentryat(' ', terminal_color, x, VGA_HEIGHT-1);
-                }
-                terminal_row = VGA_HEIGHT-1;
+        terminal_putentryat(c, p->color, p->col, p->row);
+        if (++p->col > p->end_col) {
+            p->col = p->start_col;
+            if (++p->row > p->end_row) {
+                p->row = p->end_row;
+                pane_scroll(p);
             }
         }
     }
-    update_cursor(terminal_column, terminal_row);
+    terminal_row = p->row;       // keep legacy globals coherent
+    terminal_column = p->col;
+    terminal_color = p->color;
+    update_cursor((int)p->col, (int)p->row);
+}
+
+void terminal_putchar(char c) {
+    terminal_putchar_pane(c, curpane());
 }
 
 void terminal_write(const char* data, size_t size) {
     if (data == NULL) return;
-    
-    for (size_t i = 0; i < size; i++)
-        terminal_putchar(data[i]);
+    pane_t* p = curpane();
+    for (size_t i = 0; i < size; i++) {
+        terminal_putchar_pane(data[i], p);
+    }
 }
 
 void terminal_writestring(const char* data) {
@@ -1218,11 +1310,11 @@ bool caps_lock = false;
 char get_key() {
     while ((inb(0x64) & 0x01) == 0) io_wait();
     uint8_t scancode = inb(0x60);
-    
+
     if (scancode == 0xE0) { // Extended key prefix
         while ((inb(0x64) & 0x01) == 0) io_wait();
         scancode = inb(0x60);
-        
+
         switch(scancode) {
             case KEY_UP:    return '\x11'; // Ctrl+Q
             case KEY_DOWN:  return '\x12'; // Ctrl+R
@@ -1231,7 +1323,7 @@ char get_key() {
             default:       return 0;
         }
     }
-    
+
     // Handle key releases
     if (scancode & 0x80) {
         uint8_t released_key = scancode & 0x7F;
@@ -1240,28 +1332,28 @@ char get_key() {
         }
         return 0;
     }
-    
+
     // Handle key presses
     if (scancode == KEY_LSHIFT || scancode == KEY_RSHIFT) {
         shift_pressed = true;
         return 0;
     }
-    
+
     if (scancode == KEY_CAPS) {
         caps_lock = !caps_lock;
         return 0;
     }
-    
+
     if (scancode == KEY_ENTER) {
         return '\n';
     }
-    
+
     if (scancode == KEY_BACKSPACE) {
         return '\b';
     }
-    
+
     if (scancode >= sizeof(keyboard_map)) return 0;
-    
+
     // Determine which character to return based on shift and caps state
     bool uppercase = (shift_pressed != caps_lock); // XOR
     if (uppercase) {
@@ -1278,7 +1370,7 @@ int history_pos = -1;
 
 void add_to_history(const char* cmd) {
     if (cmd == NULL || strlen(cmd) == 0) return;
-    
+
     // Don't add duplicate consecutive commands
     if (history_count > 0 && strcmp(command_history[history_count-1], cmd) == 0) {
         return;
@@ -1303,79 +1395,58 @@ size_t input_index = 0;
 
 /* Prompt helper - prints prompt WITHOUT leading newline */
 void print_prompt(void) {
+    pane_t* p = curpane();
     if (fs_initialized) {
         terminal_writestring("[");
+        uint8_t saved = p->color;
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
         terminal_writestring(current_path);
-        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+        terminal_setcolor(saved);
         terminal_writestring("] -> ");
     } else {
         terminal_writestring("-> ");
     }
 }
 
-void clear_line() {
-    // Move cursor to start of line (after prompt and space)
-    terminal_column = fs_initialized ? (strlen(current_path) + 4) : 8;
-    update_cursor(terminal_column, terminal_row);
-    
-    // Clear the line from the prompt onward
-    for (int i = terminal_column; i < VGA_WIDTH; i++) {
-        terminal_putentryat(' ', terminal_color, i, terminal_row);
-    }
-    
-    // Reset cursor
-    terminal_column = fs_initialized ? (strlen(current_path) + 4) : 8;
-    update_cursor(terminal_column, terminal_row);
-}
-
-/* Redraw input line in-place (no leading newline) */
+/* Redraw input line within active pane */
 void redraw_line() {
-    // Clear the entire current row
-    for (size_t x = 0; x < VGA_WIDTH; x++) {
-        terminal_putentryat(' ', terminal_color, x, terminal_row);
+    pane_t* p = curpane();
+    // Clear whole current row inside pane
+    for (size_t x = p->start_col; x <= p->end_col; x++) {
+        terminal_putentryat(' ', p->color, x, p->row);
     }
-
-    // Move cursor to start of line and print prompt
-    terminal_column = 0;
-    update_cursor(terminal_column, terminal_row);
+    // Move cursor to start of pane line and print prompt + buffer
+    p->col = p->start_col;
+    update_cursor((int)p->col, (int)p->row);
     print_prompt();
-
-    // Print the input buffer contents
     for (size_t i = 0; i < strlen(input_buffer); i++) {
-        terminal_putchar(input_buffer[i]);
+        terminal_putchar_pane(input_buffer[i], p);
     }
-
-    // Update indexes / cursor position
     input_index = strlen(input_buffer);
-    update_cursor(terminal_column, terminal_row);
+    update_cursor((int)p->col, (int)p->row);
 }
 
 void show_cursor(bool visible) {
-    uint16_t cursor_pos = terminal_row * VGA_WIDTH + terminal_column;
+    pane_t* p = curpane();
+    uint16_t cursor_pos = p->row * VGA_WIDTH + p->col;
     if (cursor_pos >= VGA_WIDTH * VGA_HEIGHT) return; // safety
     if (visible) {
-        // Draw a solid rectangle cursor (reverse video)
-        uint8_t current_char = terminal_buffer[cursor_pos] & 0xFF;
-        uint8_t current_color = (terminal_buffer[cursor_pos] >> 8) & 0xFF;
-        terminal_buffer[cursor_pos] = vga_entry(current_char, 
-                                              vga_entry_color(current_color >> 4, current_color & 0x0F));
+        uint8_t ch = terminal_buffer[cursor_pos] & 0xFF;
+        uint8_t col = (terminal_buffer[cursor_pos] >> 8) & 0xFF;
+        // Reverse video
+        terminal_buffer[cursor_pos] = vga_entry(ch, vga_entry_color(col >> 4, col & 0x0F));
     } else {
-        // Restore original character
-        if (input_index < strlen(input_buffer)) {
-            terminal_putentryat(input_buffer[input_index], terminal_color, terminal_column, terminal_row);
-        } else {
-            terminal_putentryat(' ', terminal_color, terminal_column, terminal_row);
-        }
+        // Restore space with pane color (approximation)
+        terminal_putentryat(' ', p->color, p->col, p->row);
     }
 }
 
 /* Read a line from keyboard (does NOT print the prompt) */
 void read_line() {
+    pane_t* p = curpane();
     input_index = 0;
     input_buffer[0] = '\0';
 
-    // Caller (shell_loop) prints the prompt once before calling read_line()
     bool cursor_visible = true;
     uint32_t last_blink = 0;
 
@@ -1383,7 +1454,7 @@ void read_line() {
     show_cursor(true);
 
     while (1) {
-        // Handle cursor blinking (simple stub; you already have it)
+        // Handle cursor blinking (simple stub)
         uint32_t current_time = 0;
         if (current_time - last_blink > CURSOR_BLINK_DELAY) {
             cursor_visible = !cursor_visible;
@@ -1393,7 +1464,6 @@ void read_line() {
 
         char c = get_key();
         if (!c) {
-            // Small delay to prevent CPU hogging
             for (volatile int i = 0; i < 1000; i++);
             continue;
         }
@@ -1406,7 +1476,7 @@ void read_line() {
             case '\x11': // Up arrow
                 if (history_pos < history_count-1) {
                     history_pos++;
-                    memmove(input_buffer, command_history[history_count-1 - history_pos], 
+                    memmove(input_buffer, command_history[history_count-1 - history_pos],
                           strlen(command_history[history_count-1 - history_pos])+1);
                     redraw_line();
                 }
@@ -1415,7 +1485,7 @@ void read_line() {
             case '\x12': // Down arrow
                 if (history_pos > 0) {
                     history_pos--;
-                    memmove(input_buffer, command_history[history_count-1 - history_pos], 
+                    memmove(input_buffer, command_history[history_count-1 - history_pos],
                           strlen(command_history[history_count-1 - history_pos])+1);
                     redraw_line();
                 } else if (history_pos == 0) {
@@ -1428,51 +1498,51 @@ void read_line() {
             case '\x13': // Left arrow
                 if (input_index > 0) {
                     input_index--;
-                    terminal_column--;
-                    update_cursor(terminal_column, terminal_row);
+                    p->col--;
+                    update_cursor((int)p->col, (int)p->row);
                  }
             break;
-            
+
             case '\x14': // Right arrow
                 if (input_index < strlen(input_buffer)) {
                     input_index++;
-                    terminal_column++;
-                    update_cursor(terminal_column, terminal_row);
+                    p->col++;
+                    update_cursor((int)p->col, (int)p->row);
                 }
             break;
-                
+
             case '\n': // Enter
                 terminal_putchar('\n');   // move to next line for command output
                 if (strlen(input_buffer) > 0) {
                     add_to_history(input_buffer);
                 }
                 return;
-                
+
             case '\b': // Backspace
                 if (input_index > 0) {
-                    memmove(&input_buffer[input_index-1], &input_buffer[input_index], 
+                    memmove(&input_buffer[input_index-1], &input_buffer[input_index],
                            strlen(&input_buffer[input_index])+1);
                     input_index--;
                     redraw_line();
                 }
                 break;
-                
+
             default: // Normal character
                 if (input_index < INPUT_BUFFER_SIZE-1) {
                     // Make space for new character
-                    memmove(&input_buffer[input_index+1], &input_buffer[input_index], 
+                    memmove(&input_buffer[input_index+1], &input_buffer[input_index],
                            strlen(&input_buffer[input_index])+1);
                     input_buffer[input_index++] = c;
                     redraw_line();
                 }
         }
-        
+
         // Show cursor again after processing
         show_cursor(true);
         cursor_visible = true;
         last_blink = current_time;
-        
-        update_cursor(terminal_column, terminal_row);
+
+        update_cursor((int)p->col, (int)p->row);
     }
 }
 
@@ -1484,19 +1554,19 @@ void read_line() {
 void reboot() {
     terminal_writestring("Rebooting system...\n");
     delay(2000000);
-    
+
     // Try multiple methods to ensure it works on different hardware
     uint8_t temp;
-    
+
     // Method 1: Keyboard controller (works on most systems)
     asm volatile ("cli");
     do {
         temp = inb(0x64);
         if (temp & 0x01) inb(0.60);
     } while (temp & 0x02);
-    
+
     outb(0x64, 0xFE);
-    
+
     // Method 2: Triple fault (force a CPU reset)
     asm volatile (
         "cli;"
@@ -1505,10 +1575,10 @@ void reboot() {
         :
         : "r" (0)
     );
-    
+
     // Method 3: Use ACPI reset command (if available)
     outw(ACPI_REBOOT_PORT, 0x1234);
-    
+
     // If all else fails, just halt
     asm volatile ("hlt");
 }
@@ -1517,27 +1587,107 @@ void reboot() {
 void shutdown() {
     terminal_writestring("Shutting down system...\n");
     delay(2000000);
-    
+
     // Try multiple methods to ensure it works on different hardware
-    
+
     // Method 1: ACPI shutdown (works on modern hardware)
     outw(ACPI_SHUTDOWN_PORT, 0x2000);
-    
+
     // Method 2: QEMU and Bochs shutdown
     outw(0xB004, 0x2000);
-    
+
     // Method 3: VirtualBox shutdown
     outw(0x4004, 0x3400);
-    
+
     // Method 4: Try to use APM (Advanced Power Management)
     outw(0x5301, 0x0000);     // Connect to APM
     outw(0x530E, 0x0000);     // Set APM version
     outw(0x5307, 0x0001);     // Set power state to off
     outw(0x5308, 0x0000);     // Set power state to off
-    
+
     // If all else fails, just halt
     asm volatile ("cli");
     asm volatile ("hlt");
+}
+
+/* ===== tmsplit / tmfocus / tmcolor ===== */
+
+static int find_free_pane() {
+    for (int i = 0; i < MAX_PANES; i++) {
+        if (!panes[i].in_use) return i;
+    }
+    return -1;
+}
+
+// Initialize a pane
+static void init_pane(int idx, size_t sr, size_t er, size_t sc, size_t ec, uint8_t color) {
+    panes[idx].start_row = sr;
+    panes[idx].end_row = er;
+    panes[idx].start_col = sc;
+    panes[idx].end_col = ec;
+    panes[idx].row = sr;
+    panes[idx].col = sc;
+    panes[idx].color = color;
+    panes[idx].in_use = true;
+    pane_clear_region(&panes[idx]);
+}
+
+// Split active pane horizontally (top/bottom) with border
+static bool pane_split_h() {
+    if (pane_count >= MAX_PANES) return false;
+    int dst = find_free_pane();
+    if (dst < 0) return false;
+
+    pane_t* p = curpane();
+    if ((p->end_row - p->start_row) < 3) return false; // Need at least 3 rows for split + border
+    
+    size_t mid = (p->start_row + p->end_row) / 2;
+    
+    // Draw horizontal border
+    uint8_t border_color = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
+    for (size_t x = p->start_col; x <= p->end_col; x++) {
+        terminal_putentryat('-', border_color, x, mid);
+    }
+    
+    // New bottom pane takes lower half (below border)
+    init_pane(dst, mid + 1, p->end_row, p->start_col, p->end_col, 
+              vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+    
+    // Current pane shrinks to upper half (above border)
+    p->end_row = mid - 1;
+    pane_clear_region(p);
+
+    pane_count++;
+    return true;
+}
+
+// Split active pane vertically (left/right) with border
+static bool pane_split_v() {
+    if (pane_count >= MAX_PANES) return false;
+    int dst = find_free_pane();
+    if (dst < 0) return false;
+
+    pane_t* p = curpane();
+    if ((p->end_col - p->start_col) < 3) return false; // Need at least 3 columns for split + border
+    
+    size_t mid = (p->start_col + p->end_col) / 2;
+    
+    // Draw vertical border
+    uint8_t border_color = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
+    for (size_t y = p->start_row; y <= p->end_row; y++) {
+        terminal_putentryat('|', border_color, mid, y);
+    }
+    
+    // New right pane takes right half (right of border)
+    init_pane(dst, p->start_row, p->end_row, mid + 1, p->end_col, 
+              vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+    
+    // Current pane shrinks to left half (left of border)
+    p->end_col = mid - 1;
+    pane_clear_region(p);
+
+    pane_count++;
+    return true;
 }
 
 /* ===== Shell Commands ===== */
@@ -1598,7 +1748,7 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
             if (text_start) {
                 // Skip whitespace to find the actual text
                 while (*text_start == ' ') text_start++;
-                
+
                 // If text is quoted, handle that
                 if (*text_start == '"') {
                     text_start++;
@@ -1607,7 +1757,7 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
                         *end_quote = '\0'; // Terminate at closing quote
                     }
                 }
-                
+
                 int result = fs_write(arg1, text_start, strlen(text_start)+1);
                 if (result == FS_OK) {
                     terminal_writestring("Write successful\n");
@@ -1627,7 +1777,7 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
         } else {
             char buffer[FS_BLOCK_SIZE + 1]; // +1 for null terminator
             int result = fs_read(arg1, buffer, sizeof(buffer) - 1); // Leave space for null terminator
-            
+
             if (result < 0) {
                 terminal_writestring("Read failed: ");
                 fs_perror(-result);
@@ -1673,15 +1823,14 @@ void shell_filesystem_commands(const char* cmd, const char* arg1, const char* ar
 void shell_loop() {
     enable_cursor(14, 15);
     update_cursor(0, 0);
-    
+
     while (1) {
-        // Print the prompt once (no leading newline here).
-        // The previous read_line() already printed a newline when Enter was pressed.
+        // Print the prompt once (no leading newline here)
         print_prompt();
 
         input_buffer[0] = '\0';
         input_index = 0;
-        
+
         read_line();
 
         // Parse command and arguments
@@ -1695,11 +1844,15 @@ void shell_loop() {
             terminal_writestring("Available commands:\n");
             terminal_writestring("  help - Show this help\n");
             terminal_writestring("  about - Show OS info\n");
-            terminal_writestring("  clear - Clear screen\n");
-            terminal_writestring("  color <fg> [bg] - Change text color\n");
+            terminal_writestring("  clear - Clear screen or active pane\n");
+            terminal_writestring("  color <fg> [bg] - Change text color (active pane)\n");
             terminal_writestring("  history - Show command history\n");
             terminal_writestring("  reboot - Restart the system\n");
             terminal_writestring("  shutdown - Power off the system\n");
+            terminal_writestring("Pane commands:\n");
+            terminal_writestring("  tmsplit h|v - Split active pane horizontally/vertically\n");
+            terminal_writestring("  tmfocus <n> - Focus pane index n\n");
+            terminal_writestring("  tmcolor <fg> [bg] - Set active pane colors\n");
             terminal_writestring("Filesystem commands:\n");
             terminal_writestring("  format - Format filesystem\n");
             terminal_writestring("  mkfile <name> - Create file\n");
@@ -1721,11 +1874,26 @@ void shell_loop() {
                 terminal_writestring("Text color changed!\n");
             }
         }
+        else if (strcmp(cmd, "tmcolor") == 0) {
+            if (args < 2) {
+                terminal_writestring("Usage: tmcolor <foreground> [background]\n");
+            } else {
+                strlower(arg1);
+                uint8_t fg = parse_color(arg1);
+                uint8_t bg = (args >= 3) ? parse_color(arg2) : VGA_COLOR_BLACK;
+                pane_t* p = curpane();
+                p->color = vga_entry_color(fg, bg);
+                // Keep legacy in sync
+                terminal_color = p->color;
+                terminal_writestring("Pane color updated!\n");
+            }
+        }
         else if (strcmp(cmd, "about") == 0) {
             terminal_writestring("FoxOS v0.1\n");
         }
         else if (strcmp(cmd, "clear") == 0) {
-            terminal_initialize();
+            // Clear only the active pane (more tmux-like)
+            pane_clear_region(curpane());
         }
         else if (strcmp(cmd, "history") == 0) {
             for (int i = 0; i < history_count; i++) {
@@ -1740,10 +1908,47 @@ void shell_loop() {
         else if (strcmp(cmd, "shutdown") == 0) {
             shutdown();
         }
+        else if (strcmp(cmd, "tmsplit") == 0) {
+            if (args < 2) {
+                terminal_writestring("Usage: tmsplit h|v\n");
+            } else {
+                if (strcmp(arg1, "h") == 0) {
+                    if (pane_split_h()) {
+                        terminal_writestring("Pane split horizontally. Use 'tmfocus <n>' to switch.\n");
+                    } else {
+                        terminal_writestring("Unable to split horizontally (max panes or too small).\n");
+                    }
+                } else if (strcmp(arg1, "v") == 0) {
+                    if (pane_split_v()) {
+                        terminal_writestring("Pane split vertically. Use 'tmfocus <n>' to switch.\n");
+                    } else {
+                        terminal_writestring("Unable to split vertically (max panes or too small).\n");
+                    }
+                } else {
+                    terminal_writestring("Usage: tmsplit h|v\n");
+                }
+            }
+        }
+        else if (strcmp(cmd, "tmfocus") == 0) {
+            if (args < 2) {
+                terminal_writestring("Usage: tmfocus <index>\n");
+            } else {
+                int n = arg1[0] - '0';
+                if (n >= 0 && n < MAX_PANES && panes[n].in_use) {
+                    active_pane = n;
+                    terminal_writestring("Switched to pane ");
+                    char ns[4]; itoa(n, ns, 10);
+                    terminal_writestring(ns);
+                    terminal_writestring("\n");
+                } else {
+                    terminal_writestring("Invalid pane index\n");
+                }
+            }
+        }
         else {
             // Handle filesystem commands
             bool handled = false;
-            
+
             // Check if it's a filesystem command
             const char* fs_commands[] = {"format", "mkfile", "mkdir", "write", "read", "ls", "rm", "cd"};
             for (size_t i = 0; i < sizeof(fs_commands)/sizeof(fs_commands[0]); i++) {
@@ -1753,7 +1958,7 @@ void shell_loop() {
                     break;
                 }
             }
-            
+
             // If not a known command, show special message
             if (!handled && strlen(cmd) > 0) {
                 terminal_writestring("Unknown command: '");
@@ -1761,41 +1966,58 @@ void shell_loop() {
                 terminal_writestring("'. Type 'help' for available commands.\n");
             }
         }
-        
-        update_cursor(terminal_column, terminal_row);
+
+        update_cursor((int)curpane()->col, (int)curpane()->row);
     }
 }
 
 /* ===== Kernel Main ===== */
 void kernel_main() {
     terminal_initialize();
-    terminal_color = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
-    
+
+    // Create initial single full-screen pane
+    int idx0 = 0;
+    panes[idx0].in_use = true;
+    pane_count = 1;
+    active_pane = 0;
+    panes[idx0].start_row = 0;
+    panes[idx0].end_row   = VGA_HEIGHT - 1;
+    panes[idx0].start_col = 0;
+    panes[idx0].end_col   = VGA_WIDTH - 1;
+    panes[idx0].color     = vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK);
+    panes[idx0].row       = panes[idx0].start_row;
+    panes[idx0].col       = panes[idx0].start_col;
+    pane_clear_region(&panes[idx0]);
+
+    // Keep legacy color var coherent
+    terminal_color = panes[idx0].color;
+
     terminal_writestring("-- FoxOS [Version 0.1] --\n");
     delay(5000000);
     terminal_writestring("<");
+    uint8_t saved = curpane()->color;
     terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_CYAN, VGA_COLOR_BLACK));
     terminal_writestring("BOOT");
-    terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+    terminal_setcolor(saved);
     terminal_writestring("> Booting system...\n");
     delay(3000000);
-    
+
     terminal_writestring("<");
     terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_CYAN, VGA_COLOR_BLACK));
     terminal_writestring("CHECK");
-    terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+    terminal_setcolor(saved);
     terminal_writestring("> Checking disks...\n");
     delay(2000000);
     if (disk_detected()) {
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
         terminal_writestring("<OK> Disk found\n");
-        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
-        
+        terminal_setcolor(saved);
+
         // Initialize file system
         terminal_writestring("<");
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_CYAN, VGA_COLOR_BLACK));
         terminal_writestring("CHECK");
-        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+        terminal_setcolor(saved);
         terminal_writestring("> Checking filesystem...\n");
         int fs_result = fs_init();
         if (fs_result == FS_OK) {
@@ -1803,21 +2025,21 @@ void kernel_main() {
         } else if (fs_result == FS_NO_DISK) {
             terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
             terminal_writestring("<FAIL> No disk detected\n");
-            terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+            terminal_setcolor(saved);
         } else if (fs_result == FS_UNFORMATTED) {
             terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
             terminal_writestring("<FAIL> ");
             fs_perror(fs_result);
             terminal_writestring("\n");
-            terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+            terminal_setcolor(saved);
             terminal_writestring("Run 'format' to create a new filesystem\n");
         }
     } else {
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
         terminal_writestring("<FAIL> No disk found\n");
-        terminal_setcolor(vga_entry_color(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+        terminal_setcolor(saved);
     }
-    
+
     terminal_writestring("Type 'help' for commands\n\n");
     shell_loop();
 }

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+clear
+echo "Building.."
 echo "COMPILING THE BOOTLOADER "
 i686-elf-as ./boot/boot.s -o ./bin/boot.o
 echo "COMPILING THE KERNEL"
@@ -12,4 +14,4 @@ i686-elf-grub-mkrescue -o foxos.iso foxiso
 
 echo "BOOTING UP FOXOS"
 
-qemu-system-i386 -cdrom foxos.iso
+qemu-system-i386 -hda foxos.iso
